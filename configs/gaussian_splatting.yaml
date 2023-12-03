@@ -14,6 +14,7 @@ data:
   light_sample_strategy: "dreamfusion"
   eval_camera_distance: 2.5
   eval_fovy_deg: 70
+  rays_d_normalize: false
 
 system_type: "gaussian-splatting-system"
 system:

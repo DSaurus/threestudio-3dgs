@@ -43,6 +43,7 @@ class DiffGaussian(Rasterizer):
         bg_color: torch.Tensor,
         scaling_modifier=1.0,
         override_color=None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         Render the scene.
