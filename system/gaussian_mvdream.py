@@ -1,22 +1,21 @@
-import math
-from dataclasses import dataclass
-
-import numpy as np
+import os
+from dataclasses import dataclass, field
+import threestudio
 import torch
 from torch.cuda.amp import autocast
-
-import threestudio
-from ..geometry.gaussian import BasicPointCloud, Camera
+import numpy as np
 from threestudio.systems.base import BaseLift3DSystem
-from threestudio.utils.loss import tv_loss
 from threestudio.utils.ops import get_cam_info_gaussian
 from threestudio.utils.typing import *
+from threestudio.utils.loss import tv_loss
+from ..geometry.gaussian import BasicPointCloud, Camera
 
 
-@threestudio.register("gaussian-splatting-system")
-class GaussianSplatting(BaseLift3DSystem):
+@threestudio.register("gaussian-splatting-mvdream-system")
+class MVDreamSystem(BaseLift3DSystem):
     @dataclass
     class Config(BaseLift3DSystem.Config):
+        visualize_samples: bool = False
         back_ground_color: Tuple[float, float, float] = (1, 1, 1)
 
     cfg: Config
@@ -31,17 +30,43 @@ class GaussianSplatting(BaseLift3DSystem):
         )
 
         self.guidance = threestudio.find(self.cfg.guidance_type)(self.cfg.guidance)
+        self.guidance.requires_grad_(False)
         self.prompt_processor = threestudio.find(self.cfg.prompt_processor_type)(
             self.cfg.prompt_processor
         )
         self.prompt_utils = self.prompt_processor()
-
+    
     def configure_optimizers(self):
         optim = self.geometry.optimizer
         ret = {
             "optimizer": optim,
         }
         return ret
+
+    def on_load_checkpoint(self, checkpoint):
+        num_pts = checkpoint["state_dict"]["geometry._xyz"].shape[0]
+        pcd = BasicPointCloud(
+            points=np.zeros((num_pts, 3)),
+            colors=np.zeros((num_pts, 3)),
+            normals=np.zeros((num_pts, 3)),
+        )
+        self.geometry.create_from_pcd(pcd, 10)
+        self.geometry.training_setup()
+
+        for k in list(checkpoint["state_dict"].keys()):
+            if k.startswith("guidance."):
+                return
+        guidance_state_dict = {
+            "guidance." + k: v for (k, v) in self.guidance.state_dict().items()
+        }
+        checkpoint["state_dict"] = {**checkpoint["state_dict"], **guidance_state_dict}
+        return
+
+    def on_save_checkpoint(self, checkpoint):
+        for k in list(checkpoint["state_dict"].keys()):
+            if k.startswith("guidance."):
+                checkpoint["state_dict"].pop(k)
+        return
 
     def forward(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         lr_max_step = self.geometry.cfg.position_lr_max_steps
@@ -96,9 +121,6 @@ class GaussianSplatting(BaseLift3DSystem):
             "radii": radiis,
         }
         return outputs
-
-    def on_fit_start(self) -> None:
-        super().on_fit_start()
 
     def training_step(self, batch, batch_idx):
         opt = self.optimizers()
@@ -178,18 +200,22 @@ class GaussianSplatting(BaseLift3DSystem):
 
     def validation_step(self, batch, batch_idx):
         out = self(batch)
-        # import pdb; pdb.set_trace()
+        save_img = out["render"].permute(0, 2, 3, 1)
         self.save_image_grid(
-            f"it{self.global_step}-{batch['index'][0]}.png",
-            [
-                {
-                    "type": "rgb",
-                    "img": out["render"].permute(0, 2, 3, 1)[0],
-                    "kwargs": {"data_format": "HWC"},
-                },
-            ],
+            f"it{self.true_global_step}-{batch['index'][0]}.png",
+            (
+                [
+                    {
+                        "type": "rgb",
+                        "img": save_img[0],
+                        "kwargs": {"data_format": "HWC"},
+                    },
+                ]
+                if "render" in out
+                else []
+            ),
             name="validation_step",
-            step=self.global_step,
+            step=self.true_global_step,
         )
 
     def on_validation_epoch_end(self):
@@ -197,37 +223,32 @@ class GaussianSplatting(BaseLift3DSystem):
 
     def test_step(self, batch, batch_idx):
         out = self(batch)
+        save_img = out["render"].permute(0, 2, 3, 1)
+        print(save_img.shape)
         self.save_image_grid(
-            f"it{self.global_step}-test/{batch['index'][0]}.png",
-            [
-                {
-                    "type": "rgb",
-                    "img": out["render"].permute(0, 2, 3, 1)[0],
-                    "kwargs": {"data_format": "HWC"},
-                },
-            ],
+            f"it{self.true_global_step}-test/{batch['index'][0]}.png",
+            (
+                [
+                    {
+                        "type": "rgb",
+                        "img": save_img[0],
+                        "kwargs": {"data_format": "HWC"},
+                    },
+                ]
+                if "render" in out
+                else []
+            ),
             name="test_step",
-            step=self.global_step,
+            step=self.true_global_step,
         )
 
     def on_test_epoch_end(self):
         self.save_img_sequence(
-            f"it{self.global_step}-test",
-            f"it{self.global_step}-test",
+            f"it{self.true_global_step}-test",
+            f"it{self.true_global_step}-test",
             "(\d+)\.png",
             save_format="mp4",
             fps=30,
             name="test",
-            step=self.global_step,
+            step=self.true_global_step,
         )
-
-    def on_load_checkpoint(self, ckpt_dict) -> None:
-        num_pts = ckpt_dict["state_dict"]["geometry._xyz"].shape[0]
-        pcd = BasicPointCloud(
-            points=np.zeros((num_pts, 3)),
-            colors=np.zeros((num_pts, 3)),
-            normals=np.zeros((num_pts, 3)),
-        )
-        self.geometry.create_from_pcd(pcd, 10)
-        self.geometry.training_setup()
-        super().on_load_checkpoint(ckpt_dict)
