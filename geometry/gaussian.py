@@ -16,14 +16,12 @@ from datetime import datetime
 from typing import NamedTuple
 
 import numpy as np
+import threestudio
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from plyfile import PlyData, PlyElement
 from simple_knn._C import distCUDA2
-from torch import nn
-
-import threestudio
 from threestudio.models.geometry.base import BaseGeometry
 from threestudio.utils.typing import *
 
