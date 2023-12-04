@@ -45,7 +45,7 @@ system:
     prune_from_iter: 0
     prune_until_iter: ${trainer.max_steps}
     densify_grad_threshold: 0.01
-    min_opac_prune: 0.005
+    min_opac_prune: 0.01
     split_thresh: 0.02
     radii2d_thresh: 1000
 
@@ -70,6 +70,7 @@ system:
     color_activation: sigmoid
     random_aug: true
     share_aug_bg: true
+    random_aug_prob: 0.8
 
   prompt_processor_type: "stable-diffusion-prompt-processor"
   prompt_processor:
@@ -87,7 +88,7 @@ system:
     min_step_percent: [0, 0.98, 0.02, 8000]  # (start_iter, start_val, end_val, end_iter)
     max_step_percent: [0, 0.98, 0.50, 8000]
     recon_loss: true
-    recon_std_rescale: 0.25
+    recon_std_rescale: 0.5
 
   loggers:
     wandb:
@@ -96,12 +97,12 @@ system:
       name: None
 
   loss:
-    lambda_sds: 1.0
+    lambda_sds: 0.1
     lambda_position: 1.0
-    lambda_opacity: 1.0
-    lambda_scales: 0.01
+    lambda_opacity: 0.1
+    lambda_scales: 0.1
     lambda_tv_loss: 0.0
-    lambda_depth_tv_loss: 0.1
+    lambda_depth_tv_loss: 1.0
 
   optimizer:
     name: Adam

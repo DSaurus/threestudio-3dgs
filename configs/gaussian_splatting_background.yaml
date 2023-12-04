@@ -60,6 +60,7 @@ system:
   background:
     color_activation: sigmoid
     random_aug: true
+    random_aug_prob: 0.8
 
   prompt_processor_type: "stable-diffusion-prompt-processor"
   prompt_processor:
@@ -83,7 +84,7 @@ system:
   loss:
     lambda_sds: 0.1
     lambda_position: 1.0
-    lambda_opacity: 1.0
+    lambda_opacity: 0.1
     lambda_scales: 0.01
     lambda_tv_loss: 1.0
 
