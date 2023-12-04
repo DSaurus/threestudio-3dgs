@@ -1,29 +1,24 @@
-name: "gs-sds-mvdream"
+name: "gs-sds-generation-background"
 tag: "${rmspace:${system.prompt_processor.prompt},_}"
 exp_root_dir: "outputs"
 seed: 0
 
-data_type: "mvdream-random-multiview-camera-datamodule"
+data_type: "random-camera-datamodule"
 data:
-  batch_size: [8,4]
-  n_view: 4
-  # 0-4999: 64x64, >=5000: 256x256
-  width: [256, 256]
-  height: [256, 256]
-  resolution_milestones: [1000]
-  camera_distance_range: [0.8, 1.0] # relative
-  fovy_range: [15, 60]
-  elevation_range: [0, 30]
-  camera_perturb: 0.
-  center_perturb: 0.
-  up_perturb: 0.
-  n_val_views: 4
-  eval_camera_distance: 3.0
-  eval_fovy_deg: 40.
+  batch_size: 4
+  width: 512
+  height: 512
+  camera_distance_range: [2.5, 2.5]
+  fovy_range: [60, 70]
+  elevation_range: [-20, 90]
+  light_sample_strategy: "dreamfusion"
+  eval_camera_distance: 2.5
+  eval_fovy_deg: 70
   rays_d_normalize: false
 
-system_type: "gaussian-splatting-mvdream-system"
+system_type: "gaussian-splatting-system"
 system:
+
   geometry_type: "gaussian-splatting"
   geometry:
     position_lr_init: 0.001
@@ -42,7 +37,7 @@ system:
     opacity_reset_interval: 50000000
     densify_from_iter: 0
     densify_until_iter: 10000
-    prune_from_iter: 0
+    prune_from_iter: 1000
     prune_until_iter: ${trainer.max_steps}
     densify_grad_threshold: 0.01
     min_opac_prune: 0.005
@@ -50,44 +45,34 @@ system:
     radii2d_thresh: 1000
 
     init_num_pts: 4096
-    pc_init_radius: 0.5
-    opacity_init: 0.05
+    pc_init_radius: 0.8
+    opacity_init: 0.2
 
-  renderer_type: "diff-gaussian-rasterizer-shading"
+  renderer_type: "diff-gaussian-rasterizer-background"
   renderer:
     debug: false
 
-  material_type: "gaussian-diffuse-with-point-light-material"
+  material_type: "no-material" # unused
   material:
-    ambient_only_steps: 5000
-    textureless_prob: 0.5
-    ambient_light_color: [0.5, 0.5, 0.5]
-    diffuse_light_color: [0.5, 0.5, 0.5]
-    soft_shading: true
+    n_output_dims: 0
 
   background_type: "gaussian-mvdream-neural-environment-map-background"
   background:
     color_activation: sigmoid
     random_aug: true
-    share_aug_bg: true
 
   prompt_processor_type: "stable-diffusion-prompt-processor"
   prompt_processor:
     pretrained_model_name_or_path: "stabilityai/stable-diffusion-2-1-base"
     prompt: ???
-    negative_prompt: "ugly, bad anatomy, blurry, pixelated obscure, unnatural colors, poor lighting, dull, and unclear, cropped, lowres, low quality, artifacts, duplicate, morbid, mutilated, poorly drawn face, deformed, dehydrated, bad proportions"
-    front_threshold: 30.
-    back_threshold: 30.
 
-  guidance_type: "mvdream-multiview-diffusion-guidance"
+  guidance_type: "stable-diffusion-guidance"
   guidance:
-    model_name: "sd-v2.1-base-4view"
-    ckpt_path: null # path to a pre-downloaded checkpoint file (null for loading from URL)
-    guidance_scale: 50.0
-    min_step_percent: [0, 0.98, 0.02, 8000]  # (start_iter, start_val, end_val, end_iter)
-    max_step_percent: [0, 0.98, 0.50, 8000]
-    recon_loss: true
-    recon_std_rescale: 0.25
+    pretrained_model_name_or_path: "stabilityai/stable-diffusion-2-1-base"
+    guidance_scale: 100.0
+    weighting_strategy: sds
+    min_step_percent: 0.02
+    max_step_percent: [1000, 0.98, 0.5, 1001]
 
   loggers:
     wandb:
@@ -96,12 +81,11 @@ system:
       name: None
 
   loss:
-    lambda_sds: 1.0
+    lambda_sds: 0.1
     lambda_position: 1.0
     lambda_opacity: 1.0
     lambda_scales: 0.01
-    lambda_tv_loss: 0.0
-    lambda_depth_tv_loss: 0.1
+    lambda_tv_loss: 1.0
 
   optimizer:
     name: Adam
@@ -113,8 +97,10 @@ system:
       background:
         lr: 0.001
 
+
+
 trainer:
-  max_steps: 20000
+  max_steps: 10000
   log_every_n_steps: 1
   num_sanity_val_steps: 0
   val_check_interval: 100
