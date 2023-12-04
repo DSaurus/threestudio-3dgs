@@ -2,15 +2,16 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
-import torch
-from torch.cuda.amp import autocast
-
 import threestudio
-from ..geometry.gaussian import BasicPointCloud, Camera
+import torch
 from threestudio.systems.base import BaseLift3DSystem
+from threestudio.systems.utils import parse_optimizer, parse_scheduler
 from threestudio.utils.loss import tv_loss
 from threestudio.utils.ops import get_cam_info_gaussian
 from threestudio.utils.typing import *
+from torch.cuda.amp import autocast
+
+from ..geometry.gaussian import BasicPointCloud, Camera
 
 
 @threestudio.register("gaussian-splatting-system")
@@ -38,10 +39,10 @@ class GaussianSplatting(BaseLift3DSystem):
 
     def configure_optimizers(self):
         optim = self.geometry.optimizer
-        ret = {
-            "optimizer": optim,
-        }
-        return ret
+        if hasattr(self.cfg.optimizer, "name"):
+            net_optim = parse_optimizer(self.cfg.optimizer, self)
+            return [optim, net_optim]
+        return [optim]
 
     def forward(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         lr_max_step = self.geometry.cfg.position_lr_max_steps
@@ -58,7 +59,10 @@ class GaussianSplatting(BaseLift3DSystem):
         viewspace_points = []
         visibility_filters = []
         radiis = []
+        normals = []
+        depths = []
         for batch_idx in range(bs):
+            batch["batch_idx"] = batch_idx
             fovy = batch["fovy"][batch_idx]
             w2c, proj, cam_p = get_cam_info_gaussian(
                 c2w=batch["c2w"][batch_idx], fovx=fovy, fovy=fovy, znear=0.1, zfar=100
@@ -77,24 +81,30 @@ class GaussianSplatting(BaseLift3DSystem):
 
             with autocast(enabled=False):
                 render_pkg = self.renderer(
-                    viewpoint_cam,
-                    self.background_tensor,
+                    viewpoint_cam, self.background_tensor, **batch
                 )
                 renders.append(render_pkg["render"])
                 viewspace_points.append(render_pkg["viewspace_points"])
                 visibility_filters.append(render_pkg["visibility_filter"])
                 radiis.append(render_pkg["radii"])
-        # image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+                if render_pkg.__contains__("normal"):
+                    normals.append(render_pkg["normal"])
+                if render_pkg.__contains__("depth"):
+                    depths.append(render_pkg["depth"])
 
-        # render_out = {
-        #     "comp_rgb": image,
-        # }
         outputs = {
-            "render": torch.stack(renders, dim=0),
+            "comp_rgb": torch.stack(renders, dim=0).permute(0, 2, 3, 1),
             "viewspace_points": viewspace_points,
             "visibility_filter": visibility_filters,
             "radii": radiis,
         }
+        if len(normals) > 0:
+            outputs.update(
+                {
+                    "comp_normal": torch.stack(normals, dim=0).permute(0, 2, 3, 1),
+                    "comp_depth": torch.stack(depths, dim=0).permute(0, 2, 3, 1),
+                }
+            )
         return outputs
 
     def on_fit_start(self) -> None:
@@ -102,11 +112,16 @@ class GaussianSplatting(BaseLift3DSystem):
 
     def training_step(self, batch, batch_idx):
         opt = self.optimizers()
+        optim_num = len(self.optimizers())
+        if optim_num == 1:
+            opt = self.optimizers()
+        else:
+            opt, net_opt = self.optimizers()
         out = self(batch)
 
         visibility_filter = out["visibility_filter"]
         radii = out["radii"]
-        guidance_inp = out["render"].permute(0, 2, 3, 1)
+        guidance_inp = out["comp_rgb"]
         # import pdb; pdb.set_trace()
         viewspace_point_tensor = out["viewspace_points"]
         guidance_out = self.guidance(
@@ -154,9 +169,18 @@ class GaussianSplatting(BaseLift3DSystem):
             loss += self.C(self.cfg.loss["lambda_scales"]) * scale_sum
 
         if self.cfg.loss["lambda_tv_loss"] > 0.0:
-            loss_tv = self.C(self.cfg.loss["lambda_tv_loss"]) * tv_loss(out["render"])
+            loss_tv = self.C(self.cfg.loss["lambda_tv_loss"]) * tv_loss(
+                out["comp_rgb"].permute(0, 3, 1, 2)
+            )
             self.log(f"train/loss_tv", loss_tv)
             loss += loss_tv
+
+        if self.cfg.loss["lambda_depth_tv_loss"] > 0.0:
+            loss_depth_tv = self.C(self.cfg.loss["lambda_tv_loss"]) * tv_loss(
+                out["comp_depth"].permute(0, 3, 1, 2)
+            )
+            self.log(f"train/loss_depth_tv", loss_depth_tv)
+            loss += loss_depth_tv
 
         for name, value in self.cfg.loss.items():
             self.log(f"train_params/{name}", self.C(value))
@@ -173,6 +197,9 @@ class GaussianSplatting(BaseLift3DSystem):
             loss.backward()
         opt.step()
         opt.zero_grad(set_to_none=True)
+        if optim_num > 1:
+            net_opt.step()
+            net_opt.zero_grad(set_to_none=True)
 
         return {"loss": loss_sds}
 
@@ -184,10 +211,21 @@ class GaussianSplatting(BaseLift3DSystem):
             [
                 {
                     "type": "rgb",
-                    "img": out["render"].permute(0, 2, 3, 1)[0],
+                    "img": out["comp_rgb"][0],
                     "kwargs": {"data_format": "HWC"},
                 },
-            ],
+            ]
+            + (
+                [
+                    {
+                        "type": "rgb",
+                        "img": out["comp_normal"][0],
+                        "kwargs": {"data_format": "HWC", "data_range": (0, 1)},
+                    }
+                ]
+                if "comp_normal" in out
+                else []
+            ),
             name="validation_step",
             step=self.global_step,
         )
@@ -202,10 +240,21 @@ class GaussianSplatting(BaseLift3DSystem):
             [
                 {
                     "type": "rgb",
-                    "img": out["render"].permute(0, 2, 3, 1)[0],
+                    "img": out["comp_rgb"][0],
                     "kwargs": {"data_format": "HWC"},
                 },
-            ],
+            ]
+            + (
+                [
+                    {
+                        "type": "rgb",
+                        "img": out["comp_normal"][0],
+                        "kwargs": {"data_format": "HWC", "data_range": (0, 1)},
+                    }
+                ]
+                if "comp_normal" in out
+                else []
+            ),
             name="test_step",
             step=self.global_step,
         )
