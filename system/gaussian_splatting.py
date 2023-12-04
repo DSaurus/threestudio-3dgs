@@ -174,7 +174,10 @@ class GaussianSplatting(BaseLift3DSystem):
             self.log(f"train/loss_tv", loss_tv)
             loss += loss_tv
 
-        if self.cfg.loss["lambda_depth_tv_loss"] > 0.0:
+        if (
+            out.__contains__("comp_depth")
+            and self.cfg.loss["lambda_depth_tv_loss"] > 0.0
+        ):
             loss_depth_tv = self.C(self.cfg.loss["lambda_tv_loss"]) * tv_loss(
                 out["comp_depth"].permute(0, 3, 1, 2)
             )

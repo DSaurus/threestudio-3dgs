@@ -108,8 +108,7 @@ class DiffGaussian(Rasterizer):
 
         # Rasterize visible Gaussians to image, obtain their radii (on screen).
         rays_d = kwargs["rays_d"][kwargs["batch_idx"]]
-        rays_d_flatten: Float[Tensor, "Nr 3"] = rays_d.reshape(-1, 3)
-        comp_rgb_bg = self.background(dirs=rays_d_flatten)
+        comp_rgb_bg = self.background(dirs=rays_d.unsqueeze(0))
 
         rendered_image, radii, rendered_depth, rendered_alpha = rasterizer(
             means3D=means3D,
