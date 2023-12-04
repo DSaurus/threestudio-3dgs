@@ -1,11 +1,10 @@
 import random
 from dataclasses import dataclass, field
 
+import threestudio
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-import threestudio
 from threestudio.models.materials.base import BaseMaterial
 from threestudio.utils.ops import dot, get_activation
 from threestudio.utils.typing import *
