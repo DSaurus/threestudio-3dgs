@@ -41,7 +41,9 @@ class GaussianSplatting(BaseLift3DSystem):
         optim = self.geometry.optimizer
         if hasattr(self.cfg.optimizer, "name"):
             net_optim = parse_optimizer(self.cfg.optimizer, self)
+            self.optim_num = 2
             return [optim, net_optim]
+        self.optim_num = 1
         return [optim]
 
     def forward(self, batch: Dict[str, Any]) -> Dict[str, Any]:
@@ -115,9 +117,7 @@ class GaussianSplatting(BaseLift3DSystem):
         super().on_fit_start()
 
     def training_step(self, batch, batch_idx):
-        opt = self.optimizers()
-        optim_num = len(self.optimizers())
-        if optim_num == 1:
+        if self.optim_num == 1:
             opt = self.optimizers()
         else:
             opt, net_opt = self.optimizers()
@@ -204,7 +204,7 @@ class GaussianSplatting(BaseLift3DSystem):
             loss.backward()
         opt.step()
         opt.zero_grad(set_to_none=True)
-        if optim_num > 1:
+        if self.optim_num > 1:
             net_opt.step()
             net_opt.zero_grad(set_to_none=True)
 

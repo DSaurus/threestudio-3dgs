@@ -2,14 +2,13 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
+import threestudio
 import torch
 import torch.nn.functional as F
 from diff_gaussian_rasterization import (
     GaussianRasterizationSettings,
     GaussianRasterizer,
 )
-
-import threestudio
 from threestudio.models.background.base import BaseBackground
 from threestudio.models.geometry.base import BaseGeometry
 from threestudio.models.materials.base import BaseMaterial
@@ -114,7 +113,7 @@ class DiffGaussian(Rasterizer):
             colors_precomp = override_color
 
         # Rasterize visible Gaussians to image, obtain their radii (on screen).
-        rendered_image, radii = rasterizer(
+        result_list = rasterizer(
             means3D=means3D,
             means2D=means2D,
             shs=shs,
@@ -124,6 +123,7 @@ class DiffGaussian(Rasterizer):
             rotations=rotations,
             cov3D_precomp=cov3D_precomp,
         )
+        rendered_image, radii = result_list[0], result_list[1]
 
         # Retain gradients of the 2D (screen-space) means for batch dim
         if self.training:
