@@ -1,6 +1,7 @@
 # threestudio-3dgs
-<img src="https://github.com/DSaurus/threestudio-3dgs/assets/24589363/ffe5bc88-4825-4e94-9b62-b944c76cc298" width="200" height="200">
-<img src="https://github.com/DSaurus/threestudio-3dgs/assets/24589363/109b9e35-1e05-4f7c-bb87-4edbfb5feb1d" width="200" height="200">
+<img src="https://github.com/DSaurus/threestudio-3dgs/assets/24589363/55874a57-cff1-4e83-a006-76585bcd3b76" width="" height="150">
+<img src="https://github.com/DSaurus/threestudio-3dgs/assets/24589363/505f35e5-b160-4c12-92dc-03482404ef5e" width="" height="150">
+<img src="https://github.com/DSaurus/threestudio-3dgs/assets/24589363/a1041f0d-a56f-4f7f-adc3-1e99c2d81098" width="" height="150">
 
 The Gaussian Splatting extension for threestudio. This extension is writen by [Ruizhi Shao](https://github.com/DSaurus) and [Youtian Lin](https://github.com/Linyou). To use it, please install [threestudio](https://github.com/threestudio-project/threestudio) first and then install this extension in threestudio `custom` directory.
 
