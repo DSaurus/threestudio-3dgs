@@ -198,9 +198,13 @@ class MVDreamSystem(BaseLift3DSystem):
             self.log(f"train/loss_tv", loss_tv)
             loss += loss_tv
 
-        if self.cfg.loss["lambda_depth_tv_loss"] > 0.0:
-            loss_depth_tv = self.C(self.cfg.loss["lambda_tv_loss"]) * tv_loss(
-                out["comp_depth"].permute(0, 3, 1, 2)
+        if (
+            out.__contains__("comp_depth")
+            and self.cfg.loss["lambda_depth_tv_loss"] > 0.0
+        ):
+            loss_depth_tv = self.C(self.cfg.loss["lambda_depth_tv_loss"]) * (
+                tv_loss(out["comp_normal"].permute(0, 3, 1, 2))
+                + tv_loss(out["comp_depth"].permute(0, 3, 1, 2))
             )
             self.log(f"train/loss_depth_tv", loss_depth_tv)
             loss += loss_depth_tv

@@ -180,6 +180,10 @@ class DiffGaussian(Rasterizer):
             1 - rendered_alpha
         ) * comp_rgb_bg.reshape(H, W, 3).permute(2, 0, 1)
         normal_map = normal_map * 0.5 * rendered_alpha + 0.5
+        mask = rendered_alpha > 0.99
+        normal_mask = mask.repeat(3, 1, 1)
+        normal_map[~normal_mask] = normal_map[~normal_mask].detach()
+        rendered_depth[~mask] = rendered_depth[~mask].detach()
 
         # Retain gradients of the 2D (screen-space) means for batch dim
         if self.training:
@@ -190,6 +194,7 @@ class DiffGaussian(Rasterizer):
         return {
             "render": rendered_image.clamp(0, 1),
             "normal": normal_map,
+            "mask": rendered_alpha,
             "depth": rendered_depth,
             "viewspace_points": screenspace_points,
             "visibility_filter": radii > 0,

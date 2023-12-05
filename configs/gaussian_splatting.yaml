@@ -81,10 +81,10 @@ system:
   loss:
     lambda_sds: 0.1
     lambda_position: 1.0
-    lambda_opacity: 1.0
-    lambda_scales: 0.01
+    lambda_opacity: 0.0001
+    lambda_scales: 0.0001
     lambda_tv_loss: 1.0
-    lambda_depth_tv_loss: 0.0
+    lambda_depth_tv_loss: 1.0
 
 trainer:
   max_steps: 10000

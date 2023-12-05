@@ -61,6 +61,7 @@ class GaussianSplatting(BaseLift3DSystem):
         radiis = []
         normals = []
         depths = []
+        masks = []
         for batch_idx in range(bs):
             batch["batch_idx"] = batch_idx
             fovy = batch["fovy"][batch_idx]
@@ -91,6 +92,8 @@ class GaussianSplatting(BaseLift3DSystem):
                     normals.append(render_pkg["normal"])
                 if render_pkg.__contains__("depth"):
                     depths.append(render_pkg["depth"])
+                if render_pkg.__contains__("mask"):
+                    masks.append(render_pkg["mask"])
 
         outputs = {
             "comp_rgb": torch.stack(renders, dim=0).permute(0, 2, 3, 1),
@@ -103,6 +106,7 @@ class GaussianSplatting(BaseLift3DSystem):
                 {
                     "comp_normal": torch.stack(normals, dim=0).permute(0, 2, 3, 1),
                     "comp_depth": torch.stack(depths, dim=0).permute(0, 2, 3, 1),
+                    "comp_mask": torch.stack(masks, dim=0).permute(0, 2, 3, 1),
                 }
             )
         return outputs
@@ -178,8 +182,9 @@ class GaussianSplatting(BaseLift3DSystem):
             out.__contains__("comp_depth")
             and self.cfg.loss["lambda_depth_tv_loss"] > 0.0
         ):
-            loss_depth_tv = self.C(self.cfg.loss["lambda_tv_loss"]) * tv_loss(
-                out["comp_depth"].permute(0, 3, 1, 2)
+            loss_depth_tv = self.C(self.cfg.loss["lambda_depth_tv_loss"]) * (
+                tv_loss(out["comp_normal"].permute(0, 3, 1, 2))
+                + tv_loss(out["comp_depth"].permute(0, 3, 1, 2))
             )
             self.log(f"train/loss_depth_tv", loss_depth_tv)
             loss += loss_depth_tv
