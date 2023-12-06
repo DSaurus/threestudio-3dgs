@@ -33,7 +33,6 @@ class MVDreamSystem(BaseLift3DSystem):
         )
 
         self.guidance = threestudio.find(self.cfg.guidance_type)(self.cfg.guidance)
-        self.guidance.requires_grad_(False)
         self.prompt_processor = threestudio.find(self.cfg.prompt_processor_type)(
             self.cfg.prompt_processor
         )
@@ -57,20 +56,6 @@ class MVDreamSystem(BaseLift3DSystem):
         )
         self.geometry.create_from_pcd(pcd, 10)
         self.geometry.training_setup()
-
-        for k in list(checkpoint["state_dict"].keys()):
-            if k.startswith("guidance."):
-                return
-        guidance_state_dict = {
-            "guidance." + k: v for (k, v) in self.guidance.state_dict().items()
-        }
-        checkpoint["state_dict"] = {**checkpoint["state_dict"], **guidance_state_dict}
-        return
-
-    def on_save_checkpoint(self, checkpoint):
-        for k in list(checkpoint["state_dict"].keys()):
-            if k.startswith("guidance."):
-                checkpoint["state_dict"].pop(k)
         return
 
     def forward(self, batch: Dict[str, Any]) -> Dict[str, Any]:
