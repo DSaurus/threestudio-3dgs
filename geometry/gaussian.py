@@ -284,7 +284,9 @@ class GaussianModel(BaseGeometry):
                             / 255.0
                         )
                     else:
-                        colors = np.zeros_like(positions)
+                        shs = np.random.random((positions.shape[0], 3)) / 255.0
+                        C0 = 0.28209479177387814
+                        colors = shs * C0 + 0.5
                     normals = np.zeros_like(positions)
                     pcd = BasicPointCloud(
                         points=positions, colors=colors, normals=normals
