@@ -862,5 +862,5 @@ class GaussianModel(BaseGeometry):
         self._rotation = nn.Parameter(
             torch.tensor(rots, dtype=torch.float, device="cuda").requires_grad_(True)
         )
-
+        self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
         self.active_sh_degree = self.max_sh_degree
