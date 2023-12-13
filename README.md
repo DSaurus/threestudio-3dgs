@@ -55,7 +55,24 @@ python launch.py --config custom/threestudio-3dgs/configs/gaussian_splatting_mvd
 python launch.py --config path/to/trial/dir/configs/parsed.yaml --train --gpu 0 resume=path/to/trial/dir/ckpts/last.ckpt
 ```
 
-## Load from PLY (coming soon)
+## Load from PLY
+```
+# load from Gaussian Splatting ply file
+python launch.py --config custom/threestudio-3dgs/configs/gaussian_splatting.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger" system.geometry.geometry_conver_from=path/to/poinc_cloud.ply
+
+# only load points position and color from ply file
+python launch.py --config custom/threestudio-3dgs/configs/gaussian_splatting.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger" system.geometry.geometry_conver_from=path/to/poinc_cloud.ply system.geometry.load_ply_only_vertex=true
+```
+
+If you want to use Shap-E initialization, please install [threestudio-Shap-E extension](https://github.com/DSaurus/threestudio-shap-E) first.
+```
+# load from Shap-E initialization
+python launch.py --config custom/threestudio-3dgs/configs/gaussian_splatting.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger" system.geometry.geometry_conver_from="shap-e:a delicious hamburger"
+```
+
+## Export (coming soon)
+
+
 
 ## Citation
 ```

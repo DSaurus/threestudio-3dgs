@@ -11,7 +11,7 @@
 import os
 import random
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import NamedTuple
 
@@ -213,6 +213,8 @@ class GaussianModel(BaseGeometry):
         pc_init_radius: float = 0.8
         opacity_init: float = 0.1
 
+        shap_e_guidance_config: dict = field(default_factory=dict)
+
     cfg: Config
 
     def setup_functions(self):
@@ -248,7 +250,19 @@ class GaussianModel(BaseGeometry):
         self.optimizer = None
         self.setup_functions()
 
-        if os.path.exists(self.cfg.geometry_convert_from):
+        if self.cfg.geometry_convert_from.startswith("shap-e:"):
+            shap_e_guidance = threestudio.find("shap-e-guidance")(
+                self.cfg.shap_e_guidance_config
+            )
+            prompt = self.cfg.geometry_convert_from[len("shap-e:") :]
+            xyz, color = shap_e_guidance(prompt)
+
+            pcd = BasicPointCloud(
+                points=xyz, colors=color, normals=np.zeros((xyz.shape[0], 3))
+            )
+            self.create_from_pcd(pcd, 10)
+            self.training_setup()
+        elif os.path.exists(self.cfg.geometry_convert_from):
             threestudio.info(
                 "Loading point cloud from %s" % self.cfg.geometry_convert_from
             )
@@ -296,6 +310,7 @@ class GaussianModel(BaseGeometry):
                     self.load_ply(self.cfg.geometry_convert_from)
                 self.training_setup()
         else:
+            threestudio.info("Geometry not found, initilization with random points")
             num_pts = self.cfg.init_num_pts
             phis = np.random.random((num_pts,)) * 2 * np.pi
             costheta = np.random.random((num_pts,)) * 2 - 1
