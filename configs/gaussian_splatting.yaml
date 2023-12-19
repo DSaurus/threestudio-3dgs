@@ -72,6 +72,8 @@ system:
     min_step_percent: 0.02
     max_step_percent: [1000, 0.98, 0.5, 1001]
 
+  exporter_type: "gaussian-mesh-exporter"
+
   loggers:
     wandb:
       enable: false
