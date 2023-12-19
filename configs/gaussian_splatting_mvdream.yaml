@@ -90,6 +90,8 @@ system:
     recon_loss: true
     recon_std_rescale: 0.5
 
+  exporter_type: "gaussian-mesh-exporter"
+
   loggers:
     wandb:
       enable: false
