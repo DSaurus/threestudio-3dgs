@@ -70,9 +70,11 @@ If you want to use shap-e initialization, please install [threestudio-shap-e ext
 python launch.py --config custom/threestudio-3dgs/configs/gaussian_splatting.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger" system.geometry.geometry_conver_from="shap-e:a delicious hamburger"
 ```
 
-## Export (coming soon)
-
-
+## Export
+You can use the following script to export Gaussian Splatting ply file and mesh obj.
+```
+python launch.py --config path/to/config --export --gpu 0 system.prompt_processor.prompt="a delicious hamburger" resume=path/to/last.ckpt
+```
 
 ## Citation
 ```
