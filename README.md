@@ -27,6 +27,9 @@ git clone git@github.com:graphdeco-inria/gaussian-splatting.git --recursive
 cd gaussian-splatting/submodules
 python -m pip install diff-gaussian-rasterization/.
 python -m pip install simple-knn/
+
+# If you want to export mesh, please install pymeshlab
+pip install pymeshlab
 ```
 
 
