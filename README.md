@@ -70,7 +70,7 @@ python launch.py --config custom/threestudio-3dgs/configs/gaussian_splatting.yam
 If you want to use shap-e initialization, please install [threestudio-shap-e extension](https://github.com/DSaurus/threestudio-shap-e) first.
 ```
 # load from shap-e initialization
-python launch.py --config custom/threestudio-3dgs/configs/gaussian_splatting.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger" system.geometry.geometry_conver_from="shap-e:a delicious hamburger"
+python launch.py --config custom/threestudio-3dgs/configs/gaussian_splatting.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger" system.geometry.geometry_convert_from="shap-e:a delicious hamburger"
 ```
 
 ## Export
