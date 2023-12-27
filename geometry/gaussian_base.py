@@ -298,6 +298,21 @@ class GaussianBaseModel(BaseGeometry):
             )
             self.create_from_pcd(pcd, 10)
             self.training_setup()
+            
+        # Support Initialization from OpenLRM, Please see https://github.com/Adamdad/threestudio-lrm
+        elif self.cfg.geometry_convert_from.startswith("lrm:"):
+            lrm_guidance = threestudio.find("lrm-guidance")(
+                self.cfg.shap_e_guidance_config
+            )
+            prompt = self.cfg.geometry_convert_from[len("lrm:") :]
+            xyz, color = lrm_guidance(prompt)
+
+            pcd = BasicPointCloud(
+                points=xyz, colors=color, normals=np.zeros((xyz.shape[0], 3))
+            )
+            self.create_from_pcd(pcd, 10)
+            self.training_setup()
+        
         elif os.path.exists(self.cfg.geometry_convert_from):
             threestudio.info(
                 "Loading point cloud from %s" % self.cfg.geometry_convert_from
