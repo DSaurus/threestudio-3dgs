@@ -73,6 +73,12 @@ If you want to use shap-e initialization, please install [threestudio-shap-e ext
 python launch.py --config custom/threestudio-3dgs/configs/gaussian_splatting.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger" system.geometry.geometry_convert_from="shap-e:a delicious hamburger"
 ```
 
+If you want to use LRM initialization, please install [threestudio-lrm extension](https://github.com/Adamdad/threestudio-lrm) first.
+```
+# load from shap-e initialization
+python launch.py --config custom/threestudio-3dgs/configs/gaussian_splatting.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger" system.geometry.geometry_conver_from="lrm:a delicious hamburger"
+```
+
 ## Export
 You can use the following script to export Gaussian Splatting ply file and mesh obj.
 ```
