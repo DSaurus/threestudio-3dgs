@@ -21,16 +21,10 @@ system:
 
   geometry_type: "gaussian-splatting"
   geometry:
-    position_lr_init: 0.001
-    position_lr_final: 0.00002
-    position_lr_delay_mult: 0.02
-    position_lr_max_steps: 1000
-    scale_lr_init: 0.005
-    scale_lr_final: 0.005
-    scale_lr_max_steps: ${trainer.max_steps}
+    position_lr: [0, 0.001, 0.00002, 1000]
+    scale_lr: 0.005
     feature_lr: 0.01
     opacity_lr: 0.05
-    scaling_lr: 0.005
     rotation_lr: 0.005
     densification_interval: 500
     prune_interval: 500

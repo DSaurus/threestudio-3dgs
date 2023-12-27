@@ -8,6 +8,7 @@
 #
 # For inquiries contact  george.drettakis@inria.fr
 #
+import math
 import os
 import random
 import sys
@@ -23,6 +24,7 @@ import torch.nn.functional as F
 from plyfile import PlyData, PlyElement
 from simple_knn._C import distCUDA2
 from threestudio.models.geometry.base import BaseGeometry
+from threestudio.utils.misc import C
 from threestudio.utils.typing import *
 
 C0 = 0.28209479177387814
@@ -38,42 +40,6 @@ def SH2RGB(sh):
 
 def inverse_sigmoid(x):
     return torch.log(x / (1 - x))
-
-
-def get_expon_lr_func(
-    lr_init, lr_final, lr_delay_steps=0, lr_delay_mult=1.0, max_steps=1000000
-):
-    """
-    Copied from Plenoxels
-
-    Continuous learning rate decay function. Adapted from JaxNeRF
-    The returned rate is lr_init when step=0 and lr_final when step=max_steps, and
-    is log-linearly interpolated elsewhere (equivalent to exponential decay).
-    If lr_delay_steps>0 then the learning rate will be scaled by some smooth
-    function of lr_delay_mult, such that the initial learning rate is
-    lr_init*lr_delay_mult at the beginning of optimization but will be eased back
-    to the normal learning rate when steps>lr_delay_steps.
-    :param conf: config subtree 'lr' or similar
-    :param max_steps: int, the number of steps during optimization.
-    :return HoF which takes step as input
-    """
-
-    def helper(step):
-        if step < 0 or (lr_init == 0.0 and lr_final == 0.0):
-            # Disable this parameter
-            return 0.0
-        if lr_delay_steps > 0:
-            # A kind of reverse cosine decay.
-            delay_rate = lr_delay_mult + (1 - lr_delay_mult) * np.sin(
-                0.5 * np.pi * np.clip(step / lr_delay_steps, 0, 1)
-            )
-        else:
-            delay_rate = 1.0
-        t = np.clip(step / max_steps, 0, 1)
-        log_lerp = np.exp(np.log(lr_init) * (1 - t) + np.log(lr_final) * t)
-        return delay_rate * log_lerp
-
-    return helper
 
 
 def strip_lowerdiag(L):
@@ -220,17 +186,12 @@ class GaussianBaseModel(BaseGeometry):
     class Config(BaseGeometry.Config):
         max_num: int = 500000
         sh_degree: int = 0
-        position_lr_init: float = 0.0001
-        position_lr_final: float = 0.00001
-        position_lr_delay_mult: float = 0.02
-        position_lr_max_steps: int = 3000
-        scale_lr_init: float = 0.003
-        scale_lr_final: float = 0.001
-        scale_lr_max_steps: int = 3000
-        feature_lr: float = 0.01
-        opacity_lr: float = 0.05
-        scaling_lr: float = 0.005
-        rotation_lr: float = 0.005
+        position_lr: Any = 0.001
+        scale_lr: Any = 0.003
+        feature_lr: Any = 0.01
+        opacity_lr: Any = 0.05
+        scaling_lr: Any = 0.005
+        rotation_lr: Any = 0.005
         densification_interval: int = 50
         prune_interval: int = 50
         opacity_reset_interval: int = 100000
@@ -238,10 +199,14 @@ class GaussianBaseModel(BaseGeometry):
         prune_from_iter: int = 100
         densify_until_iter: int = 2000
         prune_until_iter: int = 2000
-        densify_grad_threshold: float = 0.01
-        min_opac_prune: float = 0.05
-        split_thresh: float = 0.02
-        radii2d_thresh: float = 1000
+        densify_grad_threshold: Any = 0.01
+        min_opac_prune: Any = 0.005
+        split_thresh: Any = 0.02
+        radii2d_thresh: Any = 1000
+
+        sphere: bool = False
+        prune_big_points: bool = False
+        color_clip: Any = 2.0
 
         geometry_convert_from: str = ""
         load_ply_only_vertex: bool = False
@@ -370,6 +335,10 @@ class GaussianBaseModel(BaseGeometry):
 
     @property
     def get_scaling(self):
+        if self.cfg.sphere:
+            return self.scaling_activation(
+                torch.mean(self._scaling, dim=-1).unsqueeze(-1).repeat(1, 3)
+            )
         return self.scaling_activation(self._scaling)
 
     @property
@@ -383,6 +352,7 @@ class GaussianBaseModel(BaseGeometry):
     @property
     def get_features(self):
         features_dc = self._features_dc
+        features_dc = features_dc.clip(-self.color_clip, self.color_clip)
         features_rest = self._features_rest
         return torch.cat((features_dc, features_rest), dim=1)
 
@@ -452,70 +422,66 @@ class GaussianBaseModel(BaseGeometry):
         l = [
             {
                 "params": [self._xyz],
-                "lr": training_args.position_lr_init,
+                "lr": C(training_args.position_lr, 0, 0),
                 "name": "xyz",
             },
             {
                 "params": [self._features_dc],
-                "lr": training_args.feature_lr,
+                "lr": C(training_args.feature_lr, 0, 0),
                 "name": "f_dc",
             },
             {
                 "params": [self._features_rest],
-                "lr": training_args.feature_lr / 20.0,
+                "lr": C(training_args.feature_lr, 0, 0) / 20.0,
                 "name": "f_rest",
             },
             {
                 "params": [self._opacity],
-                "lr": training_args.opacity_lr,
+                "lr": C(training_args.opacity_lr, 0, 0),
                 "name": "opacity",
             },
             {
                 "params": [self._scaling],
-                "lr": training_args.scaling_lr,
+                "lr": C(training_args.scaling_lr, 0, 0),
                 "name": "scaling",
             },
             {
                 "params": [self._rotation],
-                "lr": training_args.rotation_lr,
+                "lr": C(training_args.rotation_lr, 0, 0),
                 "name": "rotation",
             },
         ]
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
-        self.xyz_scheduler_args = get_expon_lr_func(
-            lr_init=training_args.position_lr_init,
-            lr_final=training_args.position_lr_final,
-            lr_delay_mult=training_args.position_lr_delay_mult,
-            max_steps=training_args.position_lr_max_steps,
-        )
 
-        self.scale_scheduler_args = get_expon_lr_func(
-            lr_init=training_args.scale_lr_init,
-            lr_final=training_args.scale_lr_final,
-            lr_delay_mult=training_args.position_lr_delay_mult,
-            max_steps=training_args.scale_lr_max_steps,
-        )
-
-    def update_xyz_learning_rate(self, iteration):
+    def update_learning_rate(self, iteration):
         """Learning rate scheduling per step"""
         for param_group in self.optimizer.param_groups:
             if param_group["name"] == "xyz":
-                lr = self.xyz_scheduler_args(iteration)
-                param_group["lr"] = lr
-                return lr
+                param_group["lr"] = C(
+                    self.cfg.position_lr, 0, iteration, interpolation="exp"
+                )
             if param_group["name"] == "scaling":
-                lr = self.scale_scheduler_args(iteration)
-                param_group["lr"] = lr
-                return lr
-
-    def update_scale_learning_rate(self, iteration):
-        """Learning rate scheduling per step"""
-        for param_group in self.optimizer.param_groups:
-            if param_group["name"] == "scaling":
-                lr = self.scale_scheduler_args(iteration)
-                param_group["lr"] = lr
-                return lr
+                param_group["lr"] = C(
+                    self.cfg.scaling_lr, 0, iteration, interpolation="exp"
+                )
+            if param_group["name"] == "f_dc":
+                param_group["lr"] = C(
+                    self.cfg.feature_lr, 0, iteration, interpolation="exp"
+                )
+            if param_group["name"] == "f_rest":
+                param_group["lr"] = (
+                    C(self.cfg.feature_lr, 0, iteration, interpolation="exp") / 20.0
+                )
+            if param_group["name"] == "opacity":
+                param_group["lr"] = C(
+                    self.cfg.opacity_lr, 0, iteration, interpolation="exp"
+                )
+            if param_group["name"] == "rotation":
+                param_group["lr"] = C(
+                    self.cfg.rotation_lr, 0, iteration, interpolation="exp"
+                )
+        self.color_clip = C(self.cfg.color_clip, 0, iteration)
 
     def reset_opacity(self):
         # opacities_new = inverse_sigmoid(torch.min(self.get_opacity, torch.ones_like(self.get_opacity)*0.01))
@@ -728,8 +694,8 @@ class GaussianBaseModel(BaseGeometry):
 
     def prune(self, min_opacity, max_screen_size):
         prune_mask = (self.get_opacity < min_opacity).squeeze()
-        if max_screen_size:
-            big_points_vs = self.max_radii2D > max_screen_size
+        if self.cfg.prune_big_points:
+            big_points_vs = self.max_radii2D > (torch.mean(self.max_radii2D) * 3)
             prune_mask = torch.logical_or(prune_mask, big_points_vs)
         self.prune_points(prune_mask)
 
@@ -761,23 +727,22 @@ class GaussianBaseModel(BaseGeometry):
             radii_i = radii[i]
             visibility_filter_i = visibility_filter[i]
             viewspace_point_tensor_i = viewspace_point_tensor[i]
-            self.max_radii2D[visibility_filter_i] = torch.max(
-                self.max_radii2D[visibility_filter_i], radii_i[visibility_filter_i]
-            )
+            self.max_radii2D = torch.max(self.max_radii2D, radii_i.float())
 
             self.add_densification_stats(viewspace_point_tensor_i, visibility_filter_i)
-        # Densification
-        if iteration < self.cfg.densify_until_iter:
-            if (
-                iteration > self.cfg.densify_from_iter
-                and iteration < self.cfg.densify_until_iter
-                and iteration % self.cfg.densification_interval == 0
-            ):
-                self.densify(self.cfg.densify_grad_threshold)
 
-            if (
-                iteration > self.cfg.prune_from_iter
-                and iteration < self.cfg.prune_until_iter
-                and iteration % self.cfg.prune_interval == 0
-            ):
-                self.prune(self.cfg.min_opac_prune, self.cfg.radii2d_thresh)
+        if (
+            iteration > self.cfg.prune_from_iter
+            and iteration < self.cfg.prune_until_iter
+            and iteration % self.cfg.prune_interval == 0
+        ):
+            self.prune(self.cfg.min_opac_prune, self.cfg.radii2d_thresh)
+            if iteration % self.cfg.opacity_reset_interval == 0:
+                self.reset_opacity()
+
+        if (
+            iteration > self.cfg.densify_from_iter
+            and iteration < self.cfg.densify_until_iter
+            and iteration % self.cfg.densification_interval == 0
+        ):
+            self.densify(self.cfg.densify_grad_threshold)

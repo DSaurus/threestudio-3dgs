@@ -59,14 +59,7 @@ class MVDreamSystem(BaseLift3DSystem):
         return
 
     def forward(self, batch: Dict[str, Any]) -> Dict[str, Any]:
-        lr_max_step = self.geometry.cfg.position_lr_max_steps
-        scale_lr_max_steps = self.geometry.cfg.scale_lr_max_steps
-
-        if self.global_step < lr_max_step:
-            self.geometry.update_xyz_learning_rate(self.global_step)
-
-        if self.global_step < scale_lr_max_steps:
-            self.geometry.update_scale_learning_rate(self.global_step)
+        self.geometry.update_learning_rate(self.global_step)
 
         bs = batch["c2w"].shape[0]
         renders = []
@@ -75,6 +68,7 @@ class MVDreamSystem(BaseLift3DSystem):
         radiis = []
         normals = []
         depths = []
+        masks = []
         for batch_idx in range(bs):
             batch["batch_idx"] = batch_idx
             fovy = batch["fovy"][batch_idx]
@@ -105,6 +99,8 @@ class MVDreamSystem(BaseLift3DSystem):
                     normals.append(render_pkg["normal"])
                 if render_pkg.__contains__("depth"):
                     depths.append(render_pkg["depth"])
+                if render_pkg.__contains__("mask"):
+                    masks.append(render_pkg["mask"])
 
         outputs = {
             "comp_rgb": torch.stack(renders, dim=0).permute(0, 2, 3, 1),
@@ -116,7 +112,18 @@ class MVDreamSystem(BaseLift3DSystem):
             outputs.update(
                 {
                     "comp_normal": torch.stack(normals, dim=0).permute(0, 2, 3, 1),
+                }
+            )
+        if len(depths) > 0:
+            outputs.update(
+                {
                     "comp_depth": torch.stack(depths, dim=0).permute(0, 2, 3, 1),
+                }
+            )
+        if len(masks) > 0:
+            outputs.update(
+                {
+                    "comp_mask": torch.stack(masks, dim=0).permute(0, 2, 3, 1),
                 }
             )
         return outputs
@@ -131,7 +138,6 @@ class MVDreamSystem(BaseLift3DSystem):
         visibility_filter = out["visibility_filter"]
         radii = out["radii"]
         guidance_inp = out["comp_rgb"]
-        # import pdb; pdb.set_trace()
         viewspace_point_tensor = out["viewspace_points"]
         guidance_out = self.guidance(
             guidance_inp, self.prompt_utils, **batch, rgb_as_latents=False
@@ -171,6 +177,11 @@ class MVDreamSystem(BaseLift3DSystem):
             self.log(f"train/loss_opacity", loss_opacity)
             loss += self.C(self.cfg.loss["lambda_opacity"]) * loss_opacity
 
+        if self.cfg.loss["lambda_sparsity"] > 0.0:
+            loss_sparsity = (out["comp_mask"] ** 2 + 0.01).sqrt().mean()
+            self.log("train/loss_sparsity", loss_sparsity)
+            loss += loss_sparsity * self.C(self.cfg.loss.lambda_sparsity)
+
         if self.cfg.loss["lambda_scales"] > 0.0:
             scale_sum = torch.sum(self.geometry.get_scaling)
             self.log(f"train/scales", scale_sum)
@@ -188,8 +199,7 @@ class MVDreamSystem(BaseLift3DSystem):
             and self.cfg.loss["lambda_depth_tv_loss"] > 0.0
         ):
             loss_depth_tv = self.C(self.cfg.loss["lambda_depth_tv_loss"]) * (
-                tv_loss(out["comp_normal"].permute(0, 3, 1, 2))
-                + tv_loss(out["comp_depth"].permute(0, 3, 1, 2))
+                tv_loss(out["comp_depth"].permute(0, 3, 1, 2))
             )
             self.log(f"train/loss_depth_tv", loss_depth_tv)
             loss += loss_depth_tv

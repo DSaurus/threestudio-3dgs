@@ -47,14 +47,7 @@ class GaussianSplatting(BaseLift3DSystem):
         return [optim]
 
     def forward(self, batch: Dict[str, Any]) -> Dict[str, Any]:
-        lr_max_step = self.geometry.cfg.position_lr_max_steps
-        scale_lr_max_steps = self.geometry.cfg.scale_lr_max_steps
-
-        if self.global_step < lr_max_step:
-            self.geometry.update_xyz_learning_rate(self.global_step)
-
-        if self.global_step < scale_lr_max_steps:
-            self.geometry.update_scale_learning_rate(self.global_step)
+        self.geometry.update_learning_rate(self.global_step)
 
         bs = batch["c2w"].shape[0]
         renders = []

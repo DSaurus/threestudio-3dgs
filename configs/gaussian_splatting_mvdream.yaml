@@ -5,7 +5,7 @@ seed: 0
 
 data_type: "mvdream-random-multiview-camera-datamodule"
 data:
-  batch_size: [8,4]
+  batch_size: [4,4]
   n_view: 4
   # 0-4999: 64x64, >=5000: 256x256
   width: [256, 256]
@@ -26,32 +26,31 @@ system_type: "gaussian-splatting-mvdream-system"
 system:
   geometry_type: "gaussian-splatting"
   geometry:
-    position_lr_init: 0.001
-    position_lr_final: 0.00002
-    position_lr_delay_mult: 0.02
-    position_lr_max_steps: 1000
-    scale_lr_init: 0.005
-    scale_lr_final: 0.005
+    position_lr: [0, 0.0001, 0.00001, 3000]
+    scale_lr: [0, 0.01, 0.001, 3000]
     scale_lr_max_steps: ${trainer.max_steps}
-    feature_lr: 0.01
+    feature_lr: [0, 0.01, 0.005, 3000]
     opacity_lr: 0.05
-    scaling_lr: 0.005
-    rotation_lr: 0.005
-    densification_interval: 500
-    prune_interval: 500
-    opacity_reset_interval: 50000000
-    densify_from_iter: 0
-    densify_until_iter: 10000
-    prune_from_iter: 0
+    rotation_lr: 0.001
+    densification_interval: 200
+    prune_interval: 200
+    opacity_reset_interval: 100000
+    densify_from_iter: 3000
+    densify_until_iter: ${trainer.max_steps}
+    prune_from_iter: 3000
     prune_until_iter: ${trainer.max_steps}
     densify_grad_threshold: 0.01
     min_opac_prune: 0.01
     split_thresh: 0.02
     radii2d_thresh: 1000
 
+    sphere: False
+    color_clip: [0, 0.5, 1.0, 10000]
+
     init_num_pts: 4096
     pc_init_radius: 0.5
     opacity_init: 0.05
+    max_num: 500000
 
   renderer_type: "diff-gaussian-rasterizer-shading"
   renderer:
@@ -85,8 +84,8 @@ system:
     model_name: "sd-v2.1-base-4view"
     ckpt_path: null # path to a pre-downloaded checkpoint file (null for loading from URL)
     guidance_scale: 50.0
-    min_step_percent: [0, 0.98, 0.02, 8000]  # (start_iter, start_val, end_val, end_iter)
-    max_step_percent: [0, 0.98, 0.50, 8000]
+    min_step_percent: [0, 0.98, 0.02, 15000]  # (start_iter, start_val, end_val, end_iter)
+    max_step_percent: [0, 0.98, 0.50, 15000]
     recon_loss: true
     recon_std_rescale: 0.5
 
@@ -103,7 +102,8 @@ system:
     lambda_position: 1.0
     lambda_opacity: 0.0001
     lambda_scales: 0.0001
-    lambda_tv_loss: 1.0
+    lambda_sparsity: 1.0
+    lambda_tv_loss: 0.0
     lambda_depth_tv_loss: 1.0
 
   optimizer:
@@ -111,10 +111,10 @@ system:
     args:
       lr: 0.01
       betas: [0.9, 0.99]
-      eps: 1.e-15
+      eps: 1.e-6
     params:
       background:
-        lr: 0.001
+        lr: 0.0001
 
 trainer:
   max_steps: 20000
