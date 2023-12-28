@@ -7,11 +7,7 @@ import torch
 from threestudio.systems.base import BaseLift3DSystem
 from threestudio.systems.utils import parse_optimizer, parse_scheduler
 from threestudio.utils.loss import tv_loss
-from threestudio.utils.ops import get_cam_info_gaussian
 from threestudio.utils.typing import *
-from torch.cuda.amp import autocast
-
-from ..geometry.gaussian import BasicPointCloud, Camera
 
 
 @threestudio.register("gaussian-splatting-mvdream-system")
@@ -19,7 +15,6 @@ class MVDreamSystem(BaseLift3DSystem):
     @dataclass
     class Config(BaseLift3DSystem.Config):
         visualize_samples: bool = False
-        back_ground_color: Tuple[float, float, float] = (1, 1, 1)
 
     cfg: Config
 
@@ -27,10 +22,6 @@ class MVDreamSystem(BaseLift3DSystem):
         # set up geometry, material, background, renderer
         super().configure()
         self.automatic_optimization = False
-
-        self.background_tensor = torch.tensor(
-            self.cfg.back_ground_color, dtype=torch.float32, device="cuda"
-        )
 
         self.guidance = threestudio.find(self.cfg.guidance_type)(self.cfg.guidance)
         self.prompt_processor = threestudio.find(self.cfg.prompt_processor_type)(
@@ -59,66 +50,8 @@ class MVDreamSystem(BaseLift3DSystem):
         return
 
     def forward(self, batch: Dict[str, Any]) -> Dict[str, Any]:
-        lr_max_step = self.geometry.cfg.position_lr_max_steps
-        scale_lr_max_steps = self.geometry.cfg.scale_lr_max_steps
-
-        if self.global_step < lr_max_step:
-            self.geometry.update_xyz_learning_rate(self.global_step)
-
-        if self.global_step < scale_lr_max_steps:
-            self.geometry.update_scale_learning_rate(self.global_step)
-
-        bs = batch["c2w"].shape[0]
-        renders = []
-        viewspace_points = []
-        visibility_filters = []
-        radiis = []
-        normals = []
-        depths = []
-        for batch_idx in range(bs):
-            batch["batch_idx"] = batch_idx
-            fovy = batch["fovy"][batch_idx]
-            w2c, proj, cam_p = get_cam_info_gaussian(
-                c2w=batch["c2w"][batch_idx], fovx=fovy, fovy=fovy, znear=0.1, zfar=100
-            )
-
-            # import pdb; pdb.set_trace()
-            viewpoint_cam = Camera(
-                FoVx=fovy,
-                FoVy=fovy,
-                image_width=batch["width"],
-                image_height=batch["height"],
-                world_view_transform=w2c,
-                full_proj_transform=proj,
-                camera_center=cam_p,
-            )
-
-            with autocast(enabled=False):
-                render_pkg = self.renderer(
-                    viewpoint_cam, self.background_tensor, **batch
-                )
-                renders.append(render_pkg["render"])
-                viewspace_points.append(render_pkg["viewspace_points"])
-                visibility_filters.append(render_pkg["visibility_filter"])
-                radiis.append(render_pkg["radii"])
-                if render_pkg.__contains__("normal"):
-                    normals.append(render_pkg["normal"])
-                if render_pkg.__contains__("depth"):
-                    depths.append(render_pkg["depth"])
-
-        outputs = {
-            "comp_rgb": torch.stack(renders, dim=0).permute(0, 2, 3, 1),
-            "viewspace_points": viewspace_points,
-            "visibility_filter": visibility_filters,
-            "radii": radiis,
-        }
-        if len(normals) > 0:
-            outputs.update(
-                {
-                    "comp_normal": torch.stack(normals, dim=0).permute(0, 2, 3, 1),
-                    "comp_depth": torch.stack(depths, dim=0).permute(0, 2, 3, 1),
-                }
-            )
+        self.geometry.update_learning_rate(self.global_step)
+        outputs = self.renderer.batch_forward(batch)
         return outputs
 
     def training_step(self, batch, batch_idx):
@@ -131,7 +64,6 @@ class MVDreamSystem(BaseLift3DSystem):
         visibility_filter = out["visibility_filter"]
         radii = out["radii"]
         guidance_inp = out["comp_rgb"]
-        # import pdb; pdb.set_trace()
         viewspace_point_tensor = out["viewspace_points"]
         guidance_out = self.guidance(
             guidance_inp, self.prompt_utils, **batch, rgb_as_latents=False
@@ -171,6 +103,11 @@ class MVDreamSystem(BaseLift3DSystem):
             self.log(f"train/loss_opacity", loss_opacity)
             loss += self.C(self.cfg.loss["lambda_opacity"]) * loss_opacity
 
+        if self.cfg.loss["lambda_sparsity"] > 0.0:
+            loss_sparsity = (out["comp_mask"] ** 2 + 0.01).sqrt().mean()
+            self.log("train/loss_sparsity", loss_sparsity)
+            loss += loss_sparsity * self.C(self.cfg.loss.lambda_sparsity)
+
         if self.cfg.loss["lambda_scales"] > 0.0:
             scale_sum = torch.sum(self.geometry.get_scaling)
             self.log(f"train/scales", scale_sum)
@@ -188,11 +125,16 @@ class MVDreamSystem(BaseLift3DSystem):
             and self.cfg.loss["lambda_depth_tv_loss"] > 0.0
         ):
             loss_depth_tv = self.C(self.cfg.loss["lambda_depth_tv_loss"]) * (
-                tv_loss(out["comp_normal"].permute(0, 3, 1, 2))
-                + tv_loss(out["comp_depth"].permute(0, 3, 1, 2))
+                tv_loss(out["comp_depth"].permute(0, 3, 1, 2))
             )
             self.log(f"train/loss_depth_tv", loss_depth_tv)
             loss += loss_depth_tv
+
+        if out.__contains__("comp_pred_normal"):
+            loss_pred_normal = torch.nn.functional.mse_loss(
+                out["comp_pred_normal"], out["comp_normal"].detach()
+            )
+            loss += loss_pred_normal
 
         for name, value in self.cfg.loss.items():
             self.log(f"train_params/{name}", self.C(value))
@@ -237,6 +179,17 @@ class MVDreamSystem(BaseLift3DSystem):
                 ]
                 if "comp_normal" in out
                 else []
+            )
+            + (
+                [
+                    {
+                        "type": "rgb",
+                        "img": out["comp_pred_normal"][0],
+                        "kwargs": {"data_format": "HWC", "data_range": (0, 1)},
+                    }
+                ]
+                if "comp_pred_normal" in out
+                else []
             ),
             name="validation_step",
             step=self.global_step,
@@ -265,6 +218,17 @@ class MVDreamSystem(BaseLift3DSystem):
                     }
                 ]
                 if "comp_normal" in out
+                else []
+            )
+            + (
+                [
+                    {
+                        "type": "rgb",
+                        "img": out["comp_pred_normal"][0],
+                        "kwargs": {"data_format": "HWC", "data_range": (0, 1)},
+                    }
+                ]
+                if "comp_pred_normal" in out
                 else []
             ),
             name="test_step",
