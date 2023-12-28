@@ -28,12 +28,11 @@ from threestudio.models.mesh import Mesh
 from threestudio.utils.typing import *
 from tqdm import tqdm
 
-from .gaussian_base import *
 from .mesh_utils import *
 
 
-@threestudio.register("gaussian-splatting")
-class GaussianModel(GaussianBaseModel):
+@threestudio.register("gaussian-splatting-io")
+class GaussianIO:
     def construct_list_of_attributes(self):
         l = ["x", "y", "z", "nx", "ny", "nz"]
         # All channels except the 3 DC

@@ -15,12 +15,15 @@ from threestudio.models.materials.base import BaseMaterial
 from threestudio.models.renderers.base import Rasterizer
 from threestudio.utils.typing import *
 
+from .gaussian_batch_renderer import GaussianBatchRenderer
+
 
 @threestudio.register("diff-gaussian-rasterizer-background")
-class DiffGaussian(Rasterizer):
+class DiffGaussian(Rasterizer, GaussianBatchRenderer):
     @dataclass
     class Config(Rasterizer.Config):
         debug: bool = False
+        back_ground_color: Tuple[float, float, float] = (1, 1, 1)
 
     cfg: Config
 
@@ -34,6 +37,9 @@ class DiffGaussian(Rasterizer):
             "[Note] diff-gaussian-rasterizer-background doesn't support material."
         )
         super().configure(geometry, material, background)
+        self.background_tensor = torch.tensor(
+            self.cfg.back_ground_color, dtype=torch.float32, device="cuda"
+        )
 
     def forward(
         self,

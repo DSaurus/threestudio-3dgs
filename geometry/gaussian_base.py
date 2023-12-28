@@ -27,6 +27,8 @@ from threestudio.models.geometry.base import BaseGeometry
 from threestudio.utils.misc import C
 from threestudio.utils.typing import *
 
+from .gaussian_io import GaussianIO
+
 C0 = 0.28209479177387814
 
 
@@ -180,8 +182,8 @@ class Camera(NamedTuple):
     full_proj_transform: torch.Tensor
 
 
-@threestudio.register("gaussian-splatting-base")
-class GaussianBaseModel(BaseGeometry):
+@threestudio.register("gaussian-splatting")
+class GaussianBaseModel(BaseGeometry, GaussianIO):
     @dataclass
     class Config(BaseGeometry.Config):
         max_num: int = 500000
@@ -192,6 +194,9 @@ class GaussianBaseModel(BaseGeometry):
         opacity_lr: Any = 0.05
         scaling_lr: Any = 0.005
         rotation_lr: Any = 0.005
+        pred_normal: bool = False
+        normal_lr: Any = 0.001
+
         densification_interval: int = 50
         prune_interval: int = 50
         opacity_reset_interval: int = 100000
@@ -248,6 +253,8 @@ class GaussianBaseModel(BaseGeometry):
         self.max_radii2D = torch.empty(0)
         self.xyz_gradient_accum = torch.empty(0)
         self.denom = torch.empty(0)
+        if self.cfg.pred_normal:
+            self._normal = torch.empty(0)
         self.optimizer = None
         self.setup_functions()
 
@@ -360,6 +367,13 @@ class GaussianBaseModel(BaseGeometry):
     def get_opacity(self):
         return self.opacity_activation(self._opacity)
 
+    @property
+    def get_normal(self):
+        if self.cfg.pred_normal:
+            return self._normal
+        else:
+            raise ValueError("Normal is not predicted")
+
     def get_covariance(self, scaling_modifier=1):
         return self.covariance_activation(
             self.get_scaling, scaling_modifier, self._rotation
@@ -406,6 +420,9 @@ class GaussianBaseModel(BaseGeometry):
         self._scaling = nn.Parameter(scales.requires_grad_(True))
         self._rotation = nn.Parameter(rots.requires_grad_(True))
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
+        if self.cfg.pred_normal:
+            normals = torch.zeros((fused_point_cloud.shape[0], 3), device="cuda")
+            self._normal = nn.Parameter(normals.requires_grad_(True))
         self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
 
         self.fused_point_cloud = fused_point_cloud.cpu().clone().detach()
@@ -451,6 +468,14 @@ class GaussianBaseModel(BaseGeometry):
                 "name": "rotation",
             },
         ]
+        if self.cfg.pred_normal:
+            l.append(
+                {
+                    "params": [self._normal],
+                    "lr": C(training_args.normal_lr, 0, 0),
+                    "name": "normal",
+                },
+            )
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
 
@@ -481,6 +506,10 @@ class GaussianBaseModel(BaseGeometry):
                 param_group["lr"] = C(
                     self.cfg.rotation_lr, 0, iteration, interpolation="exp"
                 )
+            if param_group["name"] == "normal":
+                param_group["lr"] = C(
+                    self.cfg.normal_lr, 0, iteration, interpolation="exp"
+                )
         self.color_clip = C(self.cfg.color_clip, 0, iteration)
 
     def reset_opacity(self):
@@ -496,6 +525,7 @@ class GaussianBaseModel(BaseGeometry):
         self._opacity = self._opacity.to(device)
         self._scaling = self._scaling.to(device)
         self._rotation = self._rotation.to(device)
+        self._normal = self._normal.to(device)
 
     def replace_tensor_to_optimizer(self, tensor, name):
         optimizable_tensors = {}
@@ -545,6 +575,8 @@ class GaussianBaseModel(BaseGeometry):
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
+        if self.cfg.pred_normal:
+            self._normal = optimizable_tensors["normal"]
 
         self.xyz_gradient_accum = self.xyz_gradient_accum[valid_points_mask]
 
@@ -593,6 +625,7 @@ class GaussianBaseModel(BaseGeometry):
         new_opacities,
         new_scaling,
         new_rotation,
+        new_normal=None,
     ):
         d = {
             "xyz": new_xyz,
@@ -602,6 +635,8 @@ class GaussianBaseModel(BaseGeometry):
             "scaling": new_scaling,
             "rotation": new_rotation,
         }
+        if self.cfg.pred_normal:
+            d.update({"normal": new_normal})
 
         optimizable_tensors = self.cat_tensors_to_optimizer(d)
         self._xyz = optimizable_tensors["xyz"]
@@ -610,6 +645,8 @@ class GaussianBaseModel(BaseGeometry):
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
+        if self.cfg.pred_normal:
+            self._normal = optimizable_tensors["normal"]
 
         self.xyz_gradient_accum = torch.zeros((self._xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self._xyz.shape[0], 1), device="cuda")
@@ -623,7 +660,7 @@ class GaussianBaseModel(BaseGeometry):
         selected_pts_mask = torch.where(padded_grad >= grad_threshold, True, False)
         selected_pts_mask = torch.logical_and(
             selected_pts_mask,
-            torch.max(self.get_scaling, dim=1).values > self.cfg.split_thresh,
+            torch.norm(self.get_scaling, dim=1) > self.cfg.split_thresh,
         )
 
         # divide N to enhance robustness
@@ -641,6 +678,10 @@ class GaussianBaseModel(BaseGeometry):
         new_features_dc = self._features_dc[selected_pts_mask].repeat(N, 1, 1)
         new_features_rest = self._features_rest[selected_pts_mask].repeat(N, 1, 1)
         new_opacity = self._opacity[selected_pts_mask].repeat(N, 1)
+        if self.cfg.pred_normal:
+            new_normal = self._normal[selected_pts_mask].repeat(N, 1)
+        else:
+            new_normal = None
 
         self.densification_postfix(
             new_xyz,
@@ -649,6 +690,7 @@ class GaussianBaseModel(BaseGeometry):
             new_opacity,
             new_scaling,
             new_rotation,
+            new_normal,
         )
 
         prune_filter = torch.cat(
@@ -666,7 +708,7 @@ class GaussianBaseModel(BaseGeometry):
         )
         selected_pts_mask = torch.logical_and(
             selected_pts_mask,
-            torch.max(self.get_scaling, dim=1).values <= self.cfg.split_thresh,
+            torch.norm(self.get_scaling, dim=1) <= self.cfg.split_thresh,
         )
 
         new_xyz = self._xyz[selected_pts_mask]
@@ -675,6 +717,10 @@ class GaussianBaseModel(BaseGeometry):
         new_opacities = self._opacity[selected_pts_mask]
         new_scaling = self._scaling[selected_pts_mask]
         new_rotation = self._rotation[selected_pts_mask]
+        if self.cfg.pred_normal:
+            new_normal = self._normal[selected_pts_mask]
+        else:
+            new_normal = None
 
         self.densification_postfix(
             new_xyz,
@@ -683,6 +729,7 @@ class GaussianBaseModel(BaseGeometry):
             new_opacities,
             new_scaling,
             new_rotation,
+            new_normal,
         )
 
     def densify(self, max_grad):
