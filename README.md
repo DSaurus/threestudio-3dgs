@@ -52,6 +52,12 @@ Please first install [MVDream extension](https://github.com/DSaurus/threestudio-
 python launch.py --config custom/threestudio-3dgs/configs/gaussian_splatting_mvdream.yaml  --train --gpu 0 system.prompt_processor.prompt="an astronaut riding a horse"
 ```
 
+## Gaussian Splatting + Zero-123
+```
+# Advanced Gaussian Splatting + Zero-123
+python launch.py --config custom/threestudio-3dgs/configs/gaussian_splatting_zero123.yaml --train --gpu 0 data.image_path=./load/images/anya_front_rgba.png
+```
+
 ## Resume from checkpoints
 ```
 # resume training from the last checkpoint, you may replace last.ckpt with any other checkpoints
