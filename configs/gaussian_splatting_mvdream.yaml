@@ -26,19 +26,19 @@ system_type: "gaussian-splatting-mvdream-system"
 system:
   geometry_type: "gaussian-splatting"
   geometry:
-    position_lr: [0, 0.0001, 0.00001, 3000]
-    scale_lr: [0, 0.01, 0.001, 3000]
-    feature_lr: [0, 0.005, 0.001, 15000]
+    position_lr: [0, 0.0001, 0.00001, 1500]
+    scale_lr: [0, 0.01, 0.001, 1500]
+    feature_lr: [0, 0.005, 0.001, 6000]
     opacity_lr: 0.05
     rotation_lr: 0.001
     pred_normal: false
     normal_lr: 0.005
-    densification_interval: 500
-    prune_interval: 500
+    densification_interval: 300
+    prune_interval: 300
     opacity_reset_interval: 100000
-    densify_from_iter: 3000
+    densify_from_iter: 1500
     densify_until_iter: ${trainer.max_steps}
-    prune_from_iter: 3000
+    prune_from_iter: 1500
     prune_until_iter: ${trainer.max_steps}
     densify_grad_threshold: 0.01
     min_opac_prune: 0.01
@@ -46,7 +46,7 @@ system:
     radii2d_thresh: 1000
 
     sphere: False
-    color_clip: [0, 0.01, 0.02, 3000, 0.5, 8000, 1.0, 15000]
+    color_clip: [0, 0.01, 0.02, 1500, 0.5, 4000, 1.0, 7000]
 
     init_num_pts: 4096
     pc_init_radius: 0.5
@@ -85,8 +85,8 @@ system:
     model_name: "sd-v2.1-base-4view"
     ckpt_path: null # path to a pre-downloaded checkpoint file (null for loading from URL)
     guidance_scale: 50.0
-    min_step_percent: [0, 0.98, 0.02, 15000]  # (start_iter, start_val, end_val, end_iter)
-    max_step_percent: [0, 0.98, 0.50, 15000]
+    min_step_percent: [0, 0.98, 0.02, 7000]  # (start_iter, start_val, end_val, end_iter)
+    max_step_percent: [0, 0.98, 0.50, 7000]
     recon_loss: true
     recon_std_rescale: 0.5
 
@@ -118,7 +118,7 @@ system:
         lr: 0.0001
 
 trainer:
-  max_steps: 20000
+  max_steps: 10000
   log_every_n_steps: 1
   num_sanity_val_steps: 0
   val_check_interval: 100

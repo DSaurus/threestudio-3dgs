@@ -35,11 +35,14 @@ class Zero123(BaseLift3DSystem):
 
     def configure_optimizers(self):
         optim = self.geometry.optimizer
+        if hasattr(self, "merged_optimizer"):
+            return [optim]
         if hasattr(self.cfg.optimizer, "name"):
             net_optim = parse_optimizer(self.cfg.optimizer, self)
-            self.optim_num = 2
-            return [optim, net_optim]
-        self.optim_num = 1
+            optim = self.geometry.merge_optimizer(net_optim)
+            self.merged_optimizer = True
+        else:
+            self.merged_optimizer = False
         return [optim]
 
     def on_load_checkpoint(self, checkpoint):
@@ -194,10 +197,7 @@ class Zero123(BaseLift3DSystem):
         return out
 
     def training_step(self, batch, batch_idx):
-        if self.optim_num == 1:
-            opt = self.optimizers()
-        else:
-            opt, net_opt = self.optimizers()
+        opt = self.optimizers()
 
         if self.cfg.freq.get("ref_or_zero123", "accumulate") == "accumulate":
             do_ref = True
@@ -235,9 +235,6 @@ class Zero123(BaseLift3DSystem):
         )
         opt.step()
         opt.zero_grad(set_to_none=True)
-        if self.optim_num > 1:
-            net_opt.step()
-            net_opt.zero_grad(set_to_none=True)
 
         return {"loss": total_loss}
 

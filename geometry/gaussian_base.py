@@ -270,7 +270,7 @@ class GaussianBaseModel(BaseGeometry, GaussianIO):
             )
             self.create_from_pcd(pcd, 10)
             self.training_setup()
-            
+
         # Support Initialization from OpenLRM, Please see https://github.com/Adamdad/threestudio-lrm
         elif self.cfg.geometry_convert_from.startswith("lrm:"):
             lrm_guidance = threestudio.find("lrm-guidance")(
@@ -284,7 +284,7 @@ class GaussianBaseModel(BaseGeometry, GaussianIO):
             )
             self.create_from_pcd(pcd, 10)
             self.training_setup()
-        
+
         elif os.path.exists(self.cfg.geometry_convert_from):
             threestudio.info(
                 "Loading point cloud from %s" % self.cfg.geometry_convert_from
@@ -492,11 +492,34 @@ class GaussianBaseModel(BaseGeometry, GaussianIO):
                 },
             )
 
+        self.optimize_params = [
+            "xyz",
+            "f_dc",
+            "f_rest",
+            "opacity",
+            "scaling",
+            "rotation",
+        ]
+        self.optimize_list = l
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
+
+    def merge_optimizer(self, net_optimizer):
+        l = self.optimize_list
+        for param in net_optimizer.param_groups:
+            l.append(
+                {
+                    "params": param["params"],
+                    "lr": param["lr"],
+                }
+            )
+        self.optimizer = torch.optim.Adam(l, lr=0.0)
+        return self.optimizer
 
     def update_learning_rate(self, iteration):
         """Learning rate scheduling per step"""
         for param_group in self.optimizer.param_groups:
+            if not ("name" in param_group):
+                continue
             if param_group["name"] == "xyz":
                 param_group["lr"] = C(
                     self.cfg.position_lr, 0, iteration, interpolation="exp"
@@ -545,7 +568,7 @@ class GaussianBaseModel(BaseGeometry, GaussianIO):
     def replace_tensor_to_optimizer(self, tensor, name):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
-            if group["name"] == name:
+            if ("name" in group) and group["name"] == name:
                 stored_state = self.optimizer.state.get(group["params"][0], None)
                 # import pdb; pdb.set_trace()
                 stored_state["exp_avg"] = torch.zeros_like(tensor)
@@ -561,23 +584,24 @@ class GaussianBaseModel(BaseGeometry, GaussianIO):
     def _prune_optimizer(self, mask):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
-            stored_state = self.optimizer.state.get(group["params"][0], None)
-            if stored_state is not None:
-                stored_state["exp_avg"] = stored_state["exp_avg"][mask]
-                stored_state["exp_avg_sq"] = stored_state["exp_avg_sq"][mask]
+            if ("name" in group) and (group["name"] in self.optimize_params):
+                stored_state = self.optimizer.state.get(group["params"][0], None)
+                if stored_state is not None:
+                    stored_state["exp_avg"] = stored_state["exp_avg"][mask]
+                    stored_state["exp_avg_sq"] = stored_state["exp_avg_sq"][mask]
 
-                del self.optimizer.state[group["params"][0]]
-                group["params"][0] = nn.Parameter(
-                    (group["params"][0][mask].requires_grad_(True))
-                )
-                self.optimizer.state[group["params"][0]] = stored_state
+                    del self.optimizer.state[group["params"][0]]
+                    group["params"][0] = nn.Parameter(
+                        (group["params"][0][mask].requires_grad_(True))
+                    )
+                    self.optimizer.state[group["params"][0]] = stored_state
 
-                optimizable_tensors[group["name"]] = group["params"][0]
-            else:
-                group["params"][0] = nn.Parameter(
-                    group["params"][0][mask].requires_grad_(True)
-                )
-                optimizable_tensors[group["name"]] = group["params"][0]
+                    optimizable_tensors[group["name"]] = group["params"][0]
+                else:
+                    group["params"][0] = nn.Parameter(
+                        group["params"][0][mask].requires_grad_(True)
+                    )
+                    optimizable_tensors[group["name"]] = group["params"][0]
         return optimizable_tensors
 
     def prune_points(self, mask):
@@ -601,34 +625,38 @@ class GaussianBaseModel(BaseGeometry, GaussianIO):
     def cat_tensors_to_optimizer(self, tensors_dict):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
-            assert len(group["params"]) == 1
-            extension_tensor = tensors_dict[group["name"]]
-            stored_state = self.optimizer.state.get(group["params"][0], None)
-            if stored_state is not None:
-                stored_state["exp_avg"] = torch.cat(
-                    (stored_state["exp_avg"], torch.zeros_like(extension_tensor)), dim=0
-                )
-                stored_state["exp_avg_sq"] = torch.cat(
-                    (stored_state["exp_avg_sq"], torch.zeros_like(extension_tensor)),
-                    dim=0,
-                )
+            if ("name" in group) and (group["name"] in self.optimize_params):
+                extension_tensor = tensors_dict[group["name"]]
+                stored_state = self.optimizer.state.get(group["params"][0], None)
+                if stored_state is not None:
+                    stored_state["exp_avg"] = torch.cat(
+                        (stored_state["exp_avg"], torch.zeros_like(extension_tensor)),
+                        dim=0,
+                    )
+                    stored_state["exp_avg_sq"] = torch.cat(
+                        (
+                            stored_state["exp_avg_sq"],
+                            torch.zeros_like(extension_tensor),
+                        ),
+                        dim=0,
+                    )
 
-                del self.optimizer.state[group["params"][0]]
-                group["params"][0] = nn.Parameter(
-                    torch.cat(
-                        (group["params"][0], extension_tensor), dim=0
-                    ).requires_grad_(True)
-                )
-                self.optimizer.state[group["params"][0]] = stored_state
+                    del self.optimizer.state[group["params"][0]]
+                    group["params"][0] = nn.Parameter(
+                        torch.cat(
+                            (group["params"][0], extension_tensor), dim=0
+                        ).requires_grad_(True)
+                    )
+                    self.optimizer.state[group["params"][0]] = stored_state
 
-                optimizable_tensors[group["name"]] = group["params"][0]
-            else:
-                group["params"][0] = nn.Parameter(
-                    torch.cat(
-                        (group["params"][0], extension_tensor), dim=0
-                    ).requires_grad_(True)
-                )
-                optimizable_tensors[group["name"]] = group["params"][0]
+                    optimizable_tensors[group["name"]] = group["params"][0]
+                else:
+                    group["params"][0] = nn.Parameter(
+                        torch.cat(
+                            (group["params"][0], extension_tensor), dim=0
+                        ).requires_grad_(True)
+                    )
+                    optimizable_tensors[group["name"]] = group["params"][0]
 
         return optimizable_tensors
 

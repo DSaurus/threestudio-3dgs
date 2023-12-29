@@ -49,11 +49,11 @@ system:
     feature_lr: 0.01
     opacity_lr: 0.05
     rotation_lr: 0.001
-    densification_interval: 200
-    prune_interval: 200
+    densification_interval: 100
+    prune_interval: 100
     opacity_reset_interval: 100000
     densify_from_iter: 0
-    densify_until_iter: 10000
+    densify_until_iter: ${trainer.max_steps}
     prune_from_iter: 0
     prune_until_iter: ${trainer.max_steps}
     densify_grad_threshold: 0.01
@@ -123,9 +123,13 @@ system:
       lr: 0.01
       betas: [0.9, 0.99]
       eps: 1.e-8
+    params:
+      background:
+        lr: 0.001
+
 
 trainer:
-  max_steps: 10000
+  max_steps: 5000
   log_every_n_steps: 1
   num_sanity_val_steps: 0
   val_check_interval: 100
