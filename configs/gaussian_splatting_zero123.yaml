@@ -68,6 +68,8 @@ system:
     opacity_init: 0.05
     max_num: 500000
 
+  exporter_type: "gaussian-mesh-exporter"
+
   renderer_type: "diff-gaussian-rasterizer-advanced"
   renderer:
     debug: false
