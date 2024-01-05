@@ -1,13 +1,3 @@
-#
-# Copyright (C) 2023, Inria
-# GRAPHDECO research group, https://team.inria.fr/graphdeco
-# All rights reserved.
-#
-# This software is free for non-commercial, research and evaluation use
-# under the terms of the LICENSE.md file.
-#
-# For inquiries contact  george.drettakis@inria.fr
-#
 import math
 import os
 import random
@@ -36,8 +26,8 @@ class GaussianDynamicModel(GaussianBaseModel):
     class Config(GaussianBaseModel.Config):
         flow: bool = True
         num_frames: int = 10
-        delta_pos_lr: float = 0.001
-        delta_rot_lr: float = 0.0001
+        delta_pos_lr: Any = 0.001
+        delta_rot_lr: Any = 0.0001
 
     cfg: Config
 

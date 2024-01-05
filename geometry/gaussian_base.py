@@ -483,14 +483,6 @@ class GaussianBaseModel(BaseGeometry, GaussianIO):
                 "name": "rotation",
             },
         ]
-        if self.cfg.pred_normal:
-            l.append(
-                {
-                    "params": [self._normal],
-                    "lr": C(training_args.normal_lr, 0, 0),
-                    "name": "normal",
-                },
-            )
 
         self.optimize_params = [
             "xyz",
@@ -500,6 +492,17 @@ class GaussianBaseModel(BaseGeometry, GaussianIO):
             "scaling",
             "rotation",
         ]
+
+        if self.cfg.pred_normal:
+            l.append(
+                {
+                    "params": [self._normal],
+                    "lr": C(training_args.normal_lr, 0, 0),
+                    "name": "normal",
+                },
+            )
+            self.optimize_params.append("normal")
+
         self.optimize_list = l
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
 
