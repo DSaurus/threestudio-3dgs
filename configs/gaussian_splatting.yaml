@@ -58,7 +58,7 @@ system:
     pretrained_model_name_or_path: "stabilityai/stable-diffusion-2-1-base"
     prompt: ???
 
-  guidance_type: "stable-diffusion-guidance"
+  guidance_type: "diffusers-stable-diffusion-guidance:sds-sampler"
   guidance:
     pretrained_model_name_or_path: "stabilityai/stable-diffusion-2-1-base"
     guidance_scale: 100.0

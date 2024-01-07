@@ -14,10 +14,11 @@ from threestudio.utils.typing import *
 from torch.cuda.amp import autocast
 from torchmetrics import PearsonCorrCoef
 
+import gsstudio
 from gsstudio.representation.base.gaussian import BasicPointCloud
 
 
-@threestudio.register("gaussian-splatting-zero123-system")
+@gsstudio.register("gaussian-splatting-zero123-system")
 class Zero123(BaseLift3DSystem):
     @dataclass
     class Config(BaseLift3DSystem.Config):

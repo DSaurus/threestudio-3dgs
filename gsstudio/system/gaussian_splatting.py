@@ -11,10 +11,11 @@ from threestudio.utils.ops import get_cam_info_gaussian
 from threestudio.utils.typing import *
 from torch.cuda.amp import autocast
 
+import gsstudio
 from gsstudio.representation.base.gaussian import BasicPointCloud
 
 
-@threestudio.register("gaussian-splatting-system")
+@gsstudio.register("gaussian-splatting-system")
 class GaussianSplatting(BaseLift3DSystem):
     @dataclass
     class Config(BaseLift3DSystem.Config):

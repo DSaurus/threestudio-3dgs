@@ -195,3 +195,4 @@ load/tets/256_tets.npz
 diff-gaussian-rasterization/
 simple-knn/
 dependency/
+temp/

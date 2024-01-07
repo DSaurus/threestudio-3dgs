@@ -9,10 +9,11 @@ from threestudio.systems.utils import parse_optimizer, parse_scheduler
 from threestudio.utils.loss import tv_loss
 from threestudio.utils.typing import *
 
+import gsstudio
 from gsstudio.representation.base.gaussian import BasicPointCloud
 
 
-@threestudio.register("gaussian-splatting-mvdream-system")
+@gsstudio.register("gaussian-splatting-mvdream-system")
 class MVDreamSystem(BaseLift3DSystem):
     @dataclass
     class Config(BaseLift3DSystem.Config):
