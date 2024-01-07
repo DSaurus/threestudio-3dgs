@@ -22,11 +22,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from plyfile import PlyData, PlyElement
 from simple_knn._C import distCUDA2
-from threestudio.models.geometry.base import BaseGeometry
-from threestudio.models.mesh import Mesh
 from tqdm import tqdm
 
 import gsstudio
+from gsstudio.representation.mesh import Mesh
 from gsstudio.utils.typing import *
 
 from .mesh_utils import *

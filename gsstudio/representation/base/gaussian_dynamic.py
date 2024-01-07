@@ -12,7 +12,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from plyfile import PlyData, PlyElement
 from simple_knn._C import distCUDA2
-from threestudio.models.geometry.base import BaseGeometry
 
 import gsstudio
 from gsstudio.utils.config import C

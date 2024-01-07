@@ -18,13 +18,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 from plyfile import PlyData, PlyElement
 from simple_knn._C import distCUDA2
-from threestudio.models.geometry.base import BaseGeometry
 
 import gsstudio
 from gsstudio.representation.io.gaussian_io import GaussianIO
 from gsstudio.utils.config import C
 from gsstudio.utils.typing import *
 
+from .base import BaseGeometry
 from .utils import (
     RGB2SH,
     BasicPointCloud,
