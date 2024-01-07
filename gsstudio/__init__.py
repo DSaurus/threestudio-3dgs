@@ -1,7 +1,12 @@
-import threestudio
+try:
+    import threestudio
+except ImportError:
+    print("threestudio is not installed and some features will not be available.")
+    threestudio = None
+
 
 __modules__ = {}
-__version__ = "0.2.2"
+__version__ = "0.0.1"
 
 
 def register(name):
@@ -12,10 +17,19 @@ def register(name):
             )
         else:
             __modules__[name] = cls
-            threestudio.__modules__[name] = cls
+            if threestudio is not None:
+                threestudio.__modules__[name] = cls
         return cls
 
     return decorator
+
+
+def find_module(name):
+    if __modules__.__contains__(name):
+        return __modules__[name]
+    else:
+        print(f"Module {name} is not found in gsstudio, try to find it in threestudio.")
+        return threestudio.__modules__[name]
 
 
 def find(name):
@@ -28,11 +42,11 @@ def find(name):
         name_list.append(main_name)
         NewClass = type(
             f"{main_name}.{sub_name}",
-            tuple([__modules__[name] for name in name_list]),
+            tuple([find_module(name) for name in name_list]),
             {},
         )
         return NewClass
-    return __modules__[name]
+    return find_module(name)
 
 
 ###  grammar sugar for logging utilities  ###
