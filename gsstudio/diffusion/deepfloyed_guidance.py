@@ -6,7 +6,7 @@ from threestudio.utils.typing import *
 
 import gsstudio
 
-from .diffusers_guidance import DiffusersGuidance
+from .base import DiffusersGuidance
 
 
 def prepare_intermediate_images(self, *args, **kwargs):

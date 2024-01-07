@@ -7,7 +7,7 @@ from threestudio.utils.typing import *
 
 import gsstudio
 
-from .diffusers_guidance import DiffusersGuidance
+from .base import DiffusersGuidance
 
 
 def prepare_latents(self, *args, **kwargs):

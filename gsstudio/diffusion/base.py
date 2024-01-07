@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 
+import threestudio
 import torch
 from diffusers.utils.import_utils import is_xformers_available
 from threestudio.models.prompt_processors.base import PromptProcessorOutput
