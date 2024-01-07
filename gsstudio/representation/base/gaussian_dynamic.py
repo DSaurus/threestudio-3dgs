@@ -15,7 +15,7 @@ from simple_knn._C import distCUDA2
 from threestudio.models.geometry.base import BaseGeometry
 
 import gsstudio
-from gsstudio.utils.misc import C
+from gsstudio.utils.config import C
 from gsstudio.utils.typing import *
 
 from .gaussian import GaussianBaseModel

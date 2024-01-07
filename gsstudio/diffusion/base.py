@@ -1,14 +1,14 @@
 from dataclasses import dataclass, field
 
-import threestudio
 import torch
 from diffusers.utils.import_utils import is_xformers_available
-from threestudio.models.prompt_processors.base import PromptProcessorOutput
-from threestudio.utils.base import BaseObject
-from threestudio.utils.misc import C, cleanup, parse_version
-from threestudio.utils.typing import *
 
 import gsstudio
+from gsstudio.diffusion.prompt_processors.base import PromptProcessorOutput
+from gsstudio.utils.base import BaseObject
+from gsstudio.utils.config import C
+from gsstudio.utils.misc import cleanup, parse_version
+from gsstudio.utils.typing import *
 
 
 @gsstudio.register("diffusers-guidance")
@@ -37,7 +37,7 @@ class DiffusersGuidance(BaseObject):
     cfg: Config
 
     def configure(self) -> None:
-        threestudio.info(f"Loading Diffuser Pipeline ...")
+        gsstudio.info(f"Loading Diffuser Pipeline ...")
 
         self.weights_dtype = (
             torch.float16 if self.cfg.half_precision_weights else torch.float32
@@ -59,11 +59,9 @@ class DiffusersGuidance(BaseObject):
 
         if self.cfg.enable_memory_efficient_attention:
             if parse_version(torch.__version__) >= parse_version("2"):
-                threestudio.info(
-                    "PyTorch2.0 uses memory efficient attention by default."
-                )
+                gsstudio.info("PyTorch2.0 uses memory efficient attention by default.")
             elif not is_xformers_available():
-                threestudio.warn(
+                gsstudio.warn(
                     "xformers is not available, memory efficient attention is not enabled."
                 )
             else:
@@ -87,7 +85,7 @@ class DiffusersGuidance(BaseObject):
         self.num_train_timesteps = self.pipe.scheduler.config.num_train_timesteps
         self.set_min_max_steps()  # set to default value
 
-        threestudio.info(f"Loaded Diffuser Pipeline!")
+        gsstudio.info(f"Loaded Diffuser Pipeline!")
 
     def create_pipe(self):
         raise NotImplementedError

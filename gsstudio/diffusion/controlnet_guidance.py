@@ -6,9 +6,9 @@ import torch
 import torch.nn.functional as F
 from controlnet_aux import CannyDetector, NormalBaeDetector
 from diffusers import ControlNetModel, StableDiffusionControlNetPipeline
-from threestudio.utils.typing import *
 
 import gsstudio
+from gsstudio.utils.typing import *
 
 from .stable_diffusion_guidance import DiffusersStableDiffusionGuidance
 

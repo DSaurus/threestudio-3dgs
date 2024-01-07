@@ -2,9 +2,9 @@ from dataclasses import dataclass, field
 
 import torch.nn.functional as F
 from diffusers import IFPipeline
-from threestudio.utils.typing import *
 
 import gsstudio
+from gsstudio.utils.typing import *
 
 from .base import DiffusersGuidance
 

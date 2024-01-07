@@ -3,9 +3,9 @@ from dataclasses import dataclass, field
 import torch
 import torch.nn.functional as F
 from diffusers import StableDiffusionPipeline
-from threestudio.utils.typing import *
 
 import gsstudio
+from gsstudio.utils.typing import *
 
 from .base import DiffusersGuidance
 

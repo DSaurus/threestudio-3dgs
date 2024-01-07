@@ -1,9 +1,9 @@
 import torch
 import torch.nn.functional as F
 from diffusers import DDIMScheduler
-from threestudio.utils.typing import *
 
 import gsstudio
+from gsstudio.utils.typing import *
 
 from .utils import samples_to_noise
 

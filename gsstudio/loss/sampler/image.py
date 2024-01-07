@@ -1,9 +1,9 @@
 import torch
 import torch.nn.functional as F
 from diffusers import DDIMScheduler, DPMSolverMultistepScheduler
-from threestudio.utils.typing import *
 
 import gsstudio
+from gsstudio.utils.typing import *
 
 
 def image_set_timesteps(self, *args, **kwargs):

@@ -22,7 +22,7 @@ from threestudio.models.geometry.base import BaseGeometry
 
 import gsstudio
 from gsstudio.representation.io.gaussian_io import GaussianIO
-from gsstudio.utils.misc import C
+from gsstudio.utils.config import C
 from gsstudio.utils.typing import *
 
 from .utils import (
