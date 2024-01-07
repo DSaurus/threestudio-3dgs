@@ -17,7 +17,6 @@ from typing import NamedTuple
 
 import mcubes
 import numpy as np
-import threestudio
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -25,13 +24,15 @@ from plyfile import PlyData, PlyElement
 from simple_knn._C import distCUDA2
 from threestudio.models.geometry.base import BaseGeometry
 from threestudio.models.mesh import Mesh
-from threestudio.utils.typing import *
 from tqdm import tqdm
+
+import gsstudio
+from gsstudio.utils.typing import *
 
 from .mesh_utils import *
 
 
-@threestudio.register("gaussian-splatting-io")
+@gsstudio.register("gaussian-splatting-io")
 class GaussianIO:
     def construct_list_of_attributes(self):
         l = ["x", "y", "z", "nx", "ny", "nz"]

@@ -1,5 +1,6 @@
 import numpy as np
-import threestudio
+
+import gsstudio
 
 
 def poisson_mesh_reconstruction(points, normals=None):

@@ -4,12 +4,6 @@ import numpy as np
 import torch
 
 
-class BasicPointCloud(NamedTuple):
-    points: np.array
-    colors: np.array
-    normals: np.array
-
-
 class Camera(NamedTuple):
     FoVx: torch.Tensor
     FoVy: torch.Tensor

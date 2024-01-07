@@ -7,20 +7,21 @@ from datetime import datetime
 from typing import NamedTuple
 
 import numpy as np
-import threestudio
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from plyfile import PlyData, PlyElement
 from simple_knn._C import distCUDA2
 from threestudio.models.geometry.base import BaseGeometry
-from threestudio.utils.misc import C
-from threestudio.utils.typing import *
+
+import gsstudio
+from gsstudio.utils.misc import C
+from gsstudio.utils.typing import *
 
 from .gaussian import GaussianBaseModel
 
 
-@threestudio.register("gaussian-splatting-dynamic")
+@gsstudio.register("gaussian-splatting-dynamic")
 class GaussianDynamicModel(GaussianBaseModel):
     @dataclass
     class Config(GaussianBaseModel.Config):

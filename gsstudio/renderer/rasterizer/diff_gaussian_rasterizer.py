@@ -2,7 +2,6 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
-import threestudio
 import torch
 import torch.nn.functional as F
 from diff_gaussian_rasterization import (
@@ -13,12 +12,14 @@ from threestudio.models.background.base import BaseBackground
 from threestudio.models.geometry.base import BaseGeometry
 from threestudio.models.materials.base import BaseMaterial
 from threestudio.models.renderers.base import Rasterizer
-from threestudio.utils.typing import *
+
+import gsstudio
+from gsstudio.utils.typing import *
 
 from .gaussian_batch_renderer import GaussianBatchRenderer
 
 
-@threestudio.register("diff-gaussian-rasterizer")
+@gsstudio.register("diff-gaussian-rasterizer")
 class DiffGaussian(Rasterizer, GaussianBatchRenderer):
     @dataclass
     class Config(Rasterizer.Config):
@@ -34,7 +35,7 @@ class DiffGaussian(Rasterizer, GaussianBatchRenderer):
         material: BaseMaterial,
         background: BaseBackground,
     ) -> None:
-        threestudio.info(
+        gsstudio.info(
             "[Note] Gaussian Splatting doesn't support material and background now."
         )
         super().configure(geometry, material, background)

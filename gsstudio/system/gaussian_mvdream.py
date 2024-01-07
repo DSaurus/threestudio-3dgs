@@ -7,10 +7,10 @@ import torch
 from threestudio.systems.base import BaseLift3DSystem
 from threestudio.systems.utils import parse_optimizer, parse_scheduler
 from threestudio.utils.loss import tv_loss
-from threestudio.utils.typing import *
 
 import gsstudio
 from gsstudio.representation.base.gaussian import BasicPointCloud
+from gsstudio.utils.typing import *
 
 
 @gsstudio.register("gaussian-splatting-mvdream-system")

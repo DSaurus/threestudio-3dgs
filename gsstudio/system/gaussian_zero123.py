@@ -10,12 +10,12 @@ from threestudio.systems.base import BaseLift3DSystem
 from threestudio.systems.utils import parse_optimizer, parse_scheduler
 from threestudio.utils.loss import tv_loss
 from threestudio.utils.ops import get_cam_info_gaussian
-from threestudio.utils.typing import *
 from torch.cuda.amp import autocast
 from torchmetrics import PearsonCorrCoef
 
 import gsstudio
 from gsstudio.representation.base.gaussian import BasicPointCloud
+from gsstudio.utils.typing import *
 
 
 @gsstudio.register("gaussian-splatting-zero123-system")
