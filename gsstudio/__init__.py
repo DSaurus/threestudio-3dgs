@@ -55,6 +55,4 @@ def warn(*args, **kwargs):
     logger.warn(*args, **kwargs)
 
 
-from .renderer import *
-from .representation import *
-from .system import gaussian_mvdream, gaussian_splatting, gaussian_zero123
+from . import diffusion, loss, renderer, representation, system
