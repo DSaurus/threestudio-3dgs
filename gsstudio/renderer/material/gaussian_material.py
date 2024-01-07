@@ -1,16 +1,17 @@
 import random
 from dataclasses import dataclass, field
 
-import threestudio
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from threestudio.models.materials.base import BaseMaterial
-from threestudio.utils.ops import dot, get_activation
-from threestudio.utils.typing import *
+
+import gsstudio
+from gsstudio.renderer.material.base import BaseMaterial
+from gsstudio.utils.ops import dot, get_activation
+from gsstudio.utils.typing import *
 
 
-@threestudio.register("gaussian-diffuse-with-point-light-material")
+@gsstudio.register("gaussian-diffuse-with-point-light-material")
 class GaussianDiffuseWithPointLightMaterial(BaseMaterial):
     @dataclass
     class Config(BaseMaterial.Config):

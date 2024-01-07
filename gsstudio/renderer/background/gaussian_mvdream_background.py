@@ -1,17 +1,18 @@
 import random
 from dataclasses import dataclass, field
 
-import threestudio
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from threestudio.models.background.base import BaseBackground
 from threestudio.models.networks import get_encoding, get_mlp
-from threestudio.utils.ops import get_activation
-from threestudio.utils.typing import *
+
+import gsstudio
+from gsstudio.renderer.background.base import BaseBackground
+from gsstudio.utils.ops import get_activation
+from gsstudio.utils.typing import *
 
 
-@threestudio.register("gaussian-mvdream-neural-environment-map-background")
+@gsstudio.register("gaussian-mvdream-neural-environment-map-background")
 class NeuralEnvironmentMapBackground(BaseBackground):
     @dataclass
     class Config(BaseBackground.Config):
