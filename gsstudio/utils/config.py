@@ -207,10 +207,6 @@ def parse_optimizer(config, model):
         import apex
 
         optim = getattr(apex.optimizers, config.name)(params, **config.args)
-    # elif config.name in ["Adan"]:
-    #     from threestudio.systems import optimizers
-
-    #     optim = getattr(optimizers, config.name)(params, **config.args)
     else:
         optim = getattr(torch.optim, config.name)(params, **config.args)
     return optim

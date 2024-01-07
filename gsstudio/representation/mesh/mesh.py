@@ -30,7 +30,7 @@ class Mesh:
 
     def remove_outlier(self, outlier_n_faces_threshold: Union[int, float]) -> Mesh:
         if self.requires_grad:
-            threestudio.debug("Mesh is differentiable, not removing outliers")
+            gsstudio.debug("Mesh is differentiable, not removing outliers")
             return self
 
         # use trimesh to first split the mesh into connected components
@@ -46,7 +46,7 @@ class Mesh:
         # split the mesh into connected components
         components = mesh.split(only_watertight=False)
         # log the number of faces in each component
-        threestudio.debug(
+        gsstudio.debug(
             "Mesh has {} components, with faces: {}".format(
                 len(components), [c.faces.shape[0] for c in components]
             )
@@ -63,7 +63,7 @@ class Mesh:
             n_faces_threshold = outlier_n_faces_threshold
 
         # log the threshold
-        threestudio.debug(
+        gsstudio.debug(
             "Removing components with less than {} faces".format(n_faces_threshold)
         )
 
@@ -71,7 +71,7 @@ class Mesh:
         components = [c for c in components if c.faces.shape[0] >= n_faces_threshold]
 
         # log the number of faces in each component after removing outliers
-        threestudio.debug(
+        gsstudio.debug(
             "Mesh has {} components after removing outliers, with faces: {}".format(
                 len(components), [c.faces.shape[0] for c in components]
             )
@@ -88,7 +88,7 @@ class Mesh:
 
         if len(self.extras) > 0:
             clean_mesh.extras = self.extras
-            threestudio.debug(
+            gsstudio.debug(
                 f"The following extra attributes are inherited from the original mesh unchanged: {list(self.extras.keys())}"
             )
         return clean_mesh
@@ -207,7 +207,7 @@ class Mesh:
     def _unwrap_uv(
         self, xatlas_chart_options: dict = {}, xatlas_pack_options: dict = {}
     ):
-        threestudio.info("Using xatlas to perform UV unwrapping, may take a while ...")
+        gsstudio.info("Using xatlas to perform UV unwrapping, may take a while ...")
 
         import xatlas
 
