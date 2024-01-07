@@ -34,7 +34,7 @@ class DiffGaussian(Rasterizer, GaussianBatchRenderer):
         material: BaseMaterial,
         background: BaseBackground,
     ) -> None:
-        threestudio.info(
+        gsstudio.info(
             "[Note] diff-gaussian-rasterizer-background doesn't support material."
         )
         super().configure(geometry, material, background)

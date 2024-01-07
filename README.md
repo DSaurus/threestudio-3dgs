@@ -31,17 +31,17 @@ pip install pymeshlab
 python launch.py --config configs/gaussian_splatting.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger"
 
 # Advanced Gaussian Splatting with background + SDS Loss
-python launch.py --config custom/threestudio-3dgs/configs/gaussian_splatting_background.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger"
+python launch.py --config configs/gaussian_splatting_background.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger"
 
 # Advanced Gaussian Splatting with background and shading + SDS Loss
-python launch.py --config custom/threestudio-3dgs/configs/gaussian_splatting_shading.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger"
+python launch.py --config configs/gaussian_splatting_shading.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger"
 ```
 
 ## Gaussian Splatting + MVDream
 Please first install [MVDream extension](https://github.com/DSaurus/threestudio-mvdream), then you can run the following script:
 ```
 # Advanced Gaussian Splatting with background and shading + MVDream
-python launch.py --config custom/threestudio-3dgs/configs/gaussian_splatting_mvdream.yaml  --train --gpu 0 system.prompt_processor.prompt="an astronaut riding a horse"
+python launch.py --config configs/gaussian_splatting_mvdream.yaml  --train --gpu 0 system.prompt_processor.prompt="an astronaut riding a horse"
 ```
 
 ## Gaussian Splatting + Zero-123
