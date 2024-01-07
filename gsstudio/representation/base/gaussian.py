@@ -24,7 +24,7 @@ from gsstudio.representation.io.gaussian_io import GaussianIO
 from gsstudio.utils.config import C
 from gsstudio.utils.typing import *
 
-from .base import BaseGeometry
+from . import BaseGeometry
 from .utils import (
     RGB2SH,
     BasicPointCloud,

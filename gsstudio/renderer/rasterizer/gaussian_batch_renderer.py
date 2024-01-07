@@ -1,8 +1,7 @@
 import torch
-from threestudio.utils.ops import get_cam_info_gaussian
 from torch.cuda.amp import autocast
 
-from ..renderer_utils import Camera
+from gsstudio.renderer.renderer_utils import Camera, get_cam_info_gaussian
 
 
 class GaussianBatchRenderer:

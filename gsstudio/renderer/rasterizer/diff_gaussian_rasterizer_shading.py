@@ -8,12 +8,12 @@ from diff_gaussian_rasterization import (
     GaussianRasterizationSettings,
     GaussianRasterizer,
 )
-from threestudio.models.background.base import BaseBackground
-from threestudio.models.geometry.base import BaseGeometry
-from threestudio.models.materials.base import BaseMaterial
-from threestudio.models.renderers.base import Rasterizer
 
 import gsstudio
+from gsstudio.renderer.background.base import BaseBackground
+from gsstudio.renderer.material.base import BaseMaterial
+from gsstudio.renderer.rasterizer.base import Rasterizer
+from gsstudio.representation.base import BaseGeometry
 from gsstudio.utils.typing import *
 
 from ..material.gaussian_material import GaussianDiffuseWithPointLightMaterial

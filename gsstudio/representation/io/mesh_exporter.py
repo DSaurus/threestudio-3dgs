@@ -7,7 +7,7 @@ import torch
 import gsstudio
 from gsstudio.renderer.background.base import BaseBackground
 from gsstudio.renderer.material.base import BaseMaterial
-from gsstudio.representation.base.base import BaseGeometry
+from gsstudio.representation.base import BaseGeometry
 from gsstudio.representation.io.mesh_exporter_base import Exporter, ExporterOutput
 from gsstudio.representation.mesh import Mesh
 from gsstudio.utils.typing import *

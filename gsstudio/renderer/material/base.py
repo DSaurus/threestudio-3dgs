@@ -1,12 +1,13 @@
 import random
 from dataclasses import dataclass, field
 
-import threestudio
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from threestudio.utils.base import BaseModule
-from threestudio.utils.typing import *
+
+import gsstudio
+from gsstudio.utils.base import BaseModule
+from gsstudio.utils.typing import *
 
 
 class BaseMaterial(BaseModule):

@@ -4,12 +4,12 @@ from dataclasses import dataclass, field
 import numpy as np
 import threestudio
 import torch
-from threestudio.systems.base import BaseLift3DSystem
-from threestudio.systems.utils import parse_optimizer, parse_scheduler
-from threestudio.utils.loss import tv_loss
 
 import gsstudio
+from gsstudio.loss.general_loss import tv_loss
 from gsstudio.representation.base.gaussian import BasicPointCloud
+from gsstudio.system.base import BaseLift3DSystem
+from gsstudio.utils.config import parse_optimizer, parse_scheduler
 from gsstudio.utils.typing import *
 
 
@@ -26,7 +26,7 @@ class MVDreamSystem(BaseLift3DSystem):
         super().configure()
         self.automatic_optimization = False
 
-        self.guidance = threestudio.find(self.cfg.guidance_type)(self.cfg.guidance)
+        self.guidance = gsstudio.find(self.cfg.guidance_type)(self.cfg.guidance)
         self.prompt_processor = threestudio.find(self.cfg.prompt_processor_type)(
             self.cfg.prompt_processor
         )

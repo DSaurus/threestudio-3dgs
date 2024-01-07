@@ -1,1 +1,1 @@
-from . import gaussian_material
+from . import gaussian_material, no_material

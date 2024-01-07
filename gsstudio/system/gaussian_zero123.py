@@ -6,15 +6,12 @@ import numpy as np
 import threestudio
 import torch
 import torch.nn.functional as F
-from threestudio.systems.base import BaseLift3DSystem
-from threestudio.systems.utils import parse_optimizer, parse_scheduler
-from threestudio.utils.loss import tv_loss
-from threestudio.utils.ops import get_cam_info_gaussian
-from torch.cuda.amp import autocast
 from torchmetrics import PearsonCorrCoef
 
 import gsstudio
 from gsstudio.representation.base.gaussian import BasicPointCloud
+from gsstudio.system.base import BaseLift3DSystem
+from gsstudio.utils.config import parse_optimizer, parse_scheduler
 from gsstudio.utils.typing import *
 
 
@@ -65,7 +62,7 @@ class Zero123(BaseLift3DSystem):
     def on_fit_start(self) -> None:
         super().on_fit_start()
         # no prompt processor
-        self.guidance = threestudio.find(self.cfg.guidance_type)(self.cfg.guidance)
+        self.guidance = gsstudio.find(self.cfg.guidance_type)(self.cfg.guidance)
 
         # visualize all training images
         all_images = self.trainer.datamodule.train_dataloader().dataset.get_all_images()
