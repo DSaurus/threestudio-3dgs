@@ -3,6 +3,7 @@ from typing import NamedTuple
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 import gsstudio
 from gsstudio.utils.typing import *
@@ -19,34 +20,32 @@ class Camera(NamedTuple):
 
 
 # gaussian splatting functions
-def convert_pose(C2W):
+def convert_gl2cv(C2W, intrinsic, height):
     flip_yz = torch.eye(4, device=C2W.device)
-    flip_yz[1, 1] = -1
+    # flip_yz[1, 1] = -1
     flip_yz[2, 2] = -1
     C2W = torch.matmul(C2W, flip_yz)
-    return C2W
+    intrinsic[1, 1] *= -1
+    intrinsic[1, 2] = height - intrinsic[1, 2]
+    return C2W, intrinsic
 
 
-def get_projection_matrix_gaussian(znear, zfar, fovX, fovY, device="cuda"):
-    tanHalfFovY = math.tan((fovY / 2))
-    tanHalfFovX = math.tan((fovX / 2))
+def get_projection_matrix_advanced(
+    znear, zfar, fovX, fovY, cx=0.0, cy=0.0, device="cuda"
+):
+    tanHalfFovY = torch.tan((fovY / 2))
+    tanHalfFovX = torch.tan((fovX / 2))
+    B = fovX.shape[0]
 
-    top = tanHalfFovY * znear
-    bottom = -top
-    right = tanHalfFovX * znear
-    left = -right
+    P = torch.zeros(B, 4, 4, device=device)
 
-    P = torch.zeros(4, 4, device=device)
-
-    z_sign = 1.0
-
-    P[0, 0] = 2.0 * znear / (right - left)
-    P[1, 1] = 2.0 * znear / (top - bottom)
-    P[0, 2] = (right + left) / (right - left)
-    P[1, 2] = (top + bottom) / (top - bottom)
-    P[3, 2] = z_sign
-    P[2, 2] = z_sign * zfar / (zfar - znear)
-    P[2, 3] = -(zfar * znear) / (zfar - znear)
+    P[:, 0, 0] = 1.0 / tanHalfFovX
+    P[:, 1, 1] = 1.0 / tanHalfFovY
+    P[:, 0, 2] = cx
+    P[:, 1, 2] = cy
+    P[:, 3, 2] = 1
+    P[:, 2, 2] = (zfar - znear) / (zfar + znear)
+    P[:, 2, 3] = -2 * (zfar * znear) / (zfar + znear)
     return P
 
 
@@ -58,13 +57,16 @@ def get_fov_gaussian(P):
     return fovX, fovY
 
 
-def get_cam_info_gaussian(c2w, fovx, fovy, znear, zfar):
-    c2w = convert_pose(c2w)
-    world_view_transform = torch.inverse(c2w)
+def get_cam_info_gaussian(c2w, fovx, fovy, znear, zfar, cx=0, cy=0):
+    # c2w = convert_pose(c2w)
+    assert c2w.shape[0] == 1
+    world_view_transform = torch.inverse(c2w)[0]
 
     world_view_transform = world_view_transform.transpose(0, 1).cuda().float()
     projection_matrix = (
-        get_projection_matrix_gaussian(znear=znear, zfar=zfar, fovX=fovx, fovY=fovy)
+        get_projection_matrix_advanced(
+            znear=znear, zfar=zfar, fovX=fovx, fovY=fovy, cx=cx, cy=cy
+        )[0]
         .transpose(0, 1)
         .cuda()
     )
@@ -111,9 +113,17 @@ def get_ray_directions(
         torch.arange(H, dtype=torch.float32) + pixel_center,
         indexing="xy",
     )
+    if isinstance(fx, torch.Tensor):
+        batch_size = fx.shape[0]
+        i = i.unsqueeze(0).repeat(batch_size, 1, 1)
+        j = j.unsqueeze(0).repeat(batch_size, 1, 1)
+        fx = fx.reshape(batch_size, 1, 1)
+        fy = fy.reshape(batch_size, 1, 1)
+        cx = cx.reshape(batch_size, 1, 1)
+        cy = cy.reshape(batch_size, 1, 1)
 
     directions: Float[Tensor, "H W 3"] = torch.stack(
-        [(i - cx) / fx, -(j - cy) / fy, -torch.ones_like(i)], -1
+        [(i - cx) / fx, (j - cy) / fy, torch.ones_like(i)], -1
     )
 
     return directions
@@ -174,12 +184,12 @@ def get_projection_matrix(
     batch_size = fovy.shape[0]
     proj_mtx = torch.zeros(batch_size, 4, 4, dtype=torch.float32)
     proj_mtx[:, 0, 0] = 1.0 / (torch.tan(fovy / 2.0) * aspect_wh)
-    proj_mtx[:, 1, 1] = -1.0 / torch.tan(
+    proj_mtx[:, 1, 1] = 1.0 / torch.tan(
         fovy / 2.0
     )  # add a negative sign here as the y axis is flipped in nvdiffrast output
-    proj_mtx[:, 2, 2] = -(far + near) / (far - near)
-    proj_mtx[:, 2, 3] = -2.0 * far * near / (far - near)
-    proj_mtx[:, 3, 2] = -1.0
+    proj_mtx[:, 2, 2] = (far - near) / (far + near)
+    proj_mtx[:, 2, 3] = -2.0 * far * near / (far + near)
+    proj_mtx[:, 3, 2] = 1.0
     return proj_mtx
 
 

@@ -16,10 +16,13 @@ class GaussianBatchRenderer:
         depths = []
         masks = []
         for batch_idx in range(bs):
-            batch["batch_idx"] = batch_idx
-            fovy = batch["fovy"][batch_idx]
+            fovx = batch["fovx"][batch_idx : batch_idx + 1]
+            fovy = batch["fovy"][batch_idx : batch_idx + 1]
+            c2w = batch["c2w"][batch_idx : batch_idx + 1]
+            cx = batch["cx"][batch_idx : batch_idx + 1]
+            cy = batch["cy"][batch_idx : batch_idx + 1]
             w2c, proj, cam_p = get_cam_info_gaussian(
-                c2w=batch["c2w"][batch_idx], fovx=fovy, fovy=fovy, znear=0.1, zfar=100
+                c2w=c2w, fovx=fovx, fovy=fovy, cx=cx, cy=cy, znear=0.1, zfar=100
             )
 
             # import pdb; pdb.set_trace()

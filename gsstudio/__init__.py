@@ -69,4 +69,4 @@ def warn(*args, **kwargs):
     logger.warn(*args, **kwargs)
 
 
-from . import diffusion, loss, renderer, representation, system
+from . import data, diffusion, loss, renderer, representation, system
