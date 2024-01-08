@@ -96,151 +96,6 @@ class DynamicMultiviewIterableDataset(IterableDataset, Updateable):
             assert self.cfg.online_load_image == True
         scale = self.cfg.train_downsample_resolution
 
-        camera_dict = json.load(
-            open(os.path.join(self.cfg.dataroot, "transforms.json"), "r")
-        )
-        assert camera_dict["camera_model"] == "OPENCV"
-
-        frames = camera_dict["frames"]
-        frames = frames[:: self.cfg.train_data_interval]
-        if self.cfg.max_train_nums > 0:
-            frames = frames[: self.cfg.max_train_nums]
-        frames_proj = []
-        frames_c2w = []
-        frames_position = []
-        frames_direction = []
-        frames_img = []
-        frames_mask = []
-        frames_moment = []
-        self.frames_file_path = []
-        self.frames_mask_path = []
-        self.frames_intrinsic = []
-        self.frames_bbox = []
-
-        self.frames_t0 = []
-        self.step = 0
-
-        self.frame_w = frames[0]["w"] // scale
-        self.frame_h = frames[0]["h"] // scale
-        threestudio.info("Loading frames...")
-        self.n_frames = len(frames)
-
-        c2w_list = []
-        for frame in tqdm(frames):
-            extrinsic: Float[Tensor, "4 4"] = torch.as_tensor(
-                frame["transform_matrix"], dtype=torch.float32
-            )
-            c2w = extrinsic
-            c2w_list.append(c2w)
-        c2w_list = torch.stack(c2w_list, dim=0)
-
-        if self.cfg.camera_layout == "around":
-            c2w_list[:, :3, 3] -= torch.mean(c2w_list[:, :3, 3], dim=0).unsqueeze(0)
-        elif self.cfg.camera_layout == "front":
-            assert self.cfg.camera_distance > 0
-            c2w_list[:, :3, 3] -= torch.mean(c2w_list[:, :3, 3], dim=0).unsqueeze(0)
-            z_vector = torch.zeros(c2w_list.shape[0], 3, 1)
-            z_vector[:, 2, :] = -1
-            rot_z_vector = c2w_list[:, :3, :3] @ z_vector
-            rot_z_vector = torch.mean(rot_z_vector, dim=0).unsqueeze(0)
-            c2w_list[:, :3, 3] -= rot_z_vector[:, :, 0] * self.cfg.camera_distance
-        elif self.cfg.camera_layout == "default":
-            pass
-        else:
-            raise ValueError(
-                f"Unknown camera layout {self.cfg.camera_layout}. Now support only around and front."
-            )
-
-        for idx, frame in tqdm(enumerate(frames)):
-            intrinsic: Float[Tensor, "4 4"] = torch.eye(4)
-            intrinsic[0, 0] = frame["fl_x"] / scale
-            intrinsic[1, 1] = frame["fl_y"] / scale
-            intrinsic[0, 2] = frame["cx"] / scale
-            intrinsic[1, 2] = frame["cy"] / scale
-
-            frame_path = os.path.join(self.cfg.dataroot, frame["file_path"])
-            if not self.cfg.online_load_image:
-                img = cv2.imread(frame_path)[:, :, ::-1].copy()
-                img = cv2.resize(img, (self.frame_w, self.frame_h))
-                img: Float[Tensor, "H W 3"] = torch.FloatTensor(img) / 255
-                frames_img.append(img)
-                direction: Float[Tensor, "H W 3"] = get_ray_directions(
-                    self.frame_h,
-                    self.frame_w,
-                    (intrinsic[0, 0], intrinsic[1, 1]),
-                    (intrinsic[0, 2], intrinsic[1, 2]),
-                    use_pixel_centers=False,
-                )
-                frames_direction.append(direction)
-                if frame.__contains__("mask_path"):
-                    mask_path = os.path.join(self.cfg.dataroot, frame["mask_path"])
-                    mask = cv2.imread(mask_path)
-                    mask = cv2.resize(mask, (self.frame_w, self.frame_h))
-                    mask: Float[Tensor, "H W 3"] = torch.FloatTensor(mask) / 255
-                    frames_mask.append(mask)
-
-            if frame.__contains__("bbox"):
-                self.frames_bbox.append(torch.FloatTensor(frame["bbox"]) / scale)
-
-            self.frames_file_path.append(frame_path)
-            if frame.__contains__("mask_path"):
-                mask_path = os.path.join(self.cfg.dataroot, frame["mask_path"])
-                self.frames_mask_path.append(mask_path)
-            self.frames_intrinsic.append(intrinsic)
-
-            c2w = c2w_list[idx]
-            camera_position: Float[Tensor, "3"] = c2w[:3, 3:].reshape(-1)
-
-            near = 0.01
-            far = 100.0
-            proj = convert_proj(intrinsic, self.frame_h, self.frame_w, near, far)
-            proj: Float[Tensor, "4 4"] = torch.FloatTensor(proj)
-
-            moment: Float[Tensor, "1"] = torch.zeros(1)
-            if frame.__contains__("moment"):
-                moment[0] = frame["moment"]
-                if moment[0] < 1e-3:
-                    self.frames_t0.append(idx)
-            else:
-                moment[0] = 0
-                self.frames_t0.append(idx)
-
-            frames_proj.append(proj)
-            frames_c2w.append(c2w)
-            frames_position.append(camera_position)
-            frames_moment.append(moment)
-        threestudio.info("Loaded frames.")
-
-        self.frames_proj: Float[Tensor, "B 4 4"] = torch.stack(frames_proj, dim=0)
-        self.frames_c2w: Float[Tensor, "B 4 4"] = torch.stack(frames_c2w, dim=0)
-        self.frames_position: Float[Tensor, "B 3"] = torch.stack(frames_position, dim=0)
-        if not self.cfg.online_load_image:
-            self.frames_img: Float[Tensor, "B H W 3"] = torch.stack(frames_img, dim=0)
-            if len(frames_mask) > 0:
-                self.frames_mask: Float[Tensor, "B H W 3"] = torch.stack(
-                    frames_mask, dim=0
-                )
-            self.frames_direction: Float[Tensor, "B H W 3"] = torch.stack(
-                frames_direction, dim=0
-            )
-            self.rays_o, self.rays_d = get_rays(
-                self.frames_direction, self.frames_c2w, keepdim=True
-            )
-        self.frames_moment: Float[Tensor, "B 1"] = torch.stack(frames_moment, dim=0)
-
-        self.mvp_mtx: Float[Tensor, "B 4 4"] = get_mvp_matrix(
-            self.frames_c2w, self.frames_proj
-        )
-        self.light_positions: Float[Tensor, "B 3"] = torch.zeros_like(
-            self.frames_position
-        )
-
-        if len(self.frames_bbox) > 0:
-            self.frames_bbox: Float[Tensor, "B 4"] = torch.stack(
-                self.frames_bbox, dim=0
-            )
-        self.batch_index = 0
-
     def __iter__(self):
         while True:
             yield {}
@@ -251,23 +106,23 @@ class DynamicMultiviewIterableDataset(IterableDataset, Updateable):
     def collate(self, batch):
         # index = torch.randint(0, self.n_frames, (1,)).item()
         dataroot = self.cfg.dataroot
-        weight_list = np.ones((self.n_frames)) + 1e-6
-        if os.path.exists(os.path.join(dataroot, "status.json")):
-            status_json = json.load(open(os.path.join(dataroot, "status.json"), "r"))
-            for i in range(self.n_frames):
-                if status_json.__contains__(str(i)):
-                    weight_list[i] = status_json[str(i)]
-        weight_list = weight_list**2
-        weight_list = weight_list / (np.sum(weight_list))
+        # weight_list = np.ones((self.n_frames)) + 1e-6
+        # if os.path.exists(os.path.join(dataroot, "status.json")):
+        #     status_json = json.load(open(os.path.join(dataroot, "status.json"), "r"))
+        #     for i in range(self.n_frames):
+        #         if status_json.__contains__(str(i)):
+        #             weight_list[i] = status_json[str(i)]
+        # weight_list = weight_list**2
+        # weight_list = weight_list / (np.sum(weight_list))
 
-        if (self.cfg.online_load_image or self.step > self.cfg.initial_t0_step) and (
-            torch.randint(0, 1000, (1,)).item() % 2 == 0
-        ):
-            index = np.random.choice(np.arange(self.n_frames), (1), p=weight_list)[0]
-            # index = torch.randint(0, self.n_frames, (1,)).item()
-        else:
-            t0_index = torch.randint(0, len(self.frames_t0), (1,)).item()
-            index = self.frames_t0[t0_index]
+        # if (self.cfg.online_load_image or self.step > self.cfg.initial_t0_step) and (
+        #     torch.randint(0, 1000, (1,)).item() % 2 == 0
+        # ):
+        #     index = np.random.choice(np.arange(self.n_frames), (1), p=weight_list)[0]
+        #     # index = torch.randint(0, self.n_frames, (1,)).item()
+        # else:
+        t0_index = torch.randint(0, len(self.frames_t0), (1,)).item()
+        index = self.frames_t0[t0_index]
 
         # t0_index = torch.randint(0, len(self.frames_t0), (1,)).item()
         # index = self.frames_t0[t0_index]
