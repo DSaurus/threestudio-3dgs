@@ -1,501 +1,712 @@
-import bisect
+import json
 import math
+import os
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
+import cv2
 import numpy as np
 import pytorch_lightning as pl
 import threestudio
 import torch
 import torch.nn.functional as F
+from scipy.spatial.transform import Rotation as Rot
+from scipy.spatial.transform import Slerp
+from threestudio import register
 from threestudio.utils.base import Updateable
 from threestudio.utils.config import parse_structured
-from threestudio.utils.misc import get_device
-from threestudio.utils.ops import (
-    get_full_projection_matrix,
-    get_mvp_matrix,
-    get_projection_matrix,
-    get_ray_directions,
-    get_rays,
-)
+from threestudio.utils.ops import get_mvp_matrix, get_ray_directions, get_rays
+from threestudio.utils.typing import *
 from torch.utils.data import DataLoader, Dataset, IterableDataset
+from tqdm import tqdm
+
+
+def convert_pose(C2W):
+    flip_yz = torch.eye(4)
+    flip_yz[1, 1] = -1
+    flip_yz[2, 2] = -1
+    C2W = torch.matmul(C2W, flip_yz)
+    return C2W
+
+
+def convert_proj(K, H, W, near, far):
+    return [
+        [2 * K[0, 0] / W, -2 * K[0, 1] / W, (W - 2 * K[0, 2]) / W, 0],
+        [0, -2 * K[1, 1] / H, (H - 2 * K[1, 2]) / H, 0],
+        [0, 0, (-far - near) / (far - near), -2 * far * near / (far - near)],
+        [0, 0, -1, 0],
+    ]
+
+
+def inter_pose(pose_0, pose_1, ratio):
+    pose_0 = pose_0.detach().cpu().numpy()
+    pose_1 = pose_1.detach().cpu().numpy()
+    pose_0 = np.linalg.inv(pose_0)
+    pose_1 = np.linalg.inv(pose_1)
+    rot_0 = pose_0[:3, :3]
+    rot_1 = pose_1[:3, :3]
+    rots = Rot.from_matrix(np.stack([rot_0, rot_1]))
+    key_times = [0, 1]
+    slerp = Slerp(key_times, rots)
+    rot = slerp(ratio)
+    pose = np.diag([1.0, 1.0, 1.0, 1.0])
+    pose = pose.astype(np.float32)
+    pose[:3, :3] = rot.as_matrix()
+    pose[:3, 3] = ((1.0 - ratio) * pose_0 + ratio * pose_1)[:3, 3]
+    pose = np.linalg.inv(pose)
+    return pose
 
 
 @dataclass
-class RandomCameraDataModuleConfig:
-    # height, width, and batch_size should be Union[int, List[int]]
-    # but OmegaConf does not support Union of containers
-    height: Any = 64
-    width: Any = 64
-    batch_size: Any = 1
-    resolution_milestones: List[int] = field(default_factory=lambda: [])
-    eval_height: int = 512
-    eval_width: int = 512
+class DynamicMultiviewsDataModuleConfig:
+    dataroot: str = ""
+    train_downsample_resolution: int = 4
+    eval_downsample_resolution: int = 4
+    train_data_interval: int = 1
+    eval_data_interval: int = 1
+    batch_size: int = 1
     eval_batch_size: int = 1
-    n_val_views: int = 1
-    n_test_views: int = 120
-    elevation_range: Tuple[float, float] = (-10, 90)
-    azimuth_range: Tuple[float, float] = (-180, 180)
-    camera_distance_range: Tuple[float, float] = (1, 1.5)
-    fovy_range: Tuple[float, float] = (
-        40,
-        70,
-    )  # in degrees, in vertical direction (along height)
-    camera_perturb: float = 0.1
-    center_perturb: float = 0.2
-    up_perturb: float = 0.02
-    light_position_perturb: float = 1.0
-    light_distance_range: Tuple[float, float] = (0.8, 1.5)
-    eval_elevation_deg: float = 15.0
-    eval_camera_distance: float = 1.5
-    eval_fovy_deg: float = 70.0
-    light_sample_strategy: str = "dreamfusion"
-    batch_uniform_azimuth: bool = True
-    progressive_until: int = 0  # progressive ranges for elevation, azimuth, r, fovy
+    camera_layout: str = "around"
+    camera_distance: float = -1
+    eval_interpolation: Optional[Tuple[int, int, int]] = None  # (0, 1, 30)
+    eval_time_interpolation: Optional[Tuple[float, float]] = None  # (t0, t1)
+    time_upsample: bool = False
+    sin_interpolation: bool = False
 
-    rays_d_normalize: bool = True
+    initial_t0_step: int = 0
+    online_load_image: bool = False
+
+    build_dataset_root: str = ""
+    build_image_name: str = "images"
+    build_json: bool = True
+
+    edit: bool = False
+    close_interval: bool = False
+
+    max_train_nums: int = -1
 
 
-class RandomCameraIterableDataset(IterableDataset, Updateable):
+class DynamicMultiviewIterableDataset(IterableDataset, Updateable):
     def __init__(self, cfg: Any) -> None:
         super().__init__()
-        self.cfg: RandomCameraDataModuleConfig = cfg
-        self.heights: List[int] = (
-            [self.cfg.height] if isinstance(self.cfg.height, int) else self.cfg.height
+        self.cfg: DynamicMultiviewsDataModuleConfig = cfg
+
+        assert self.cfg.batch_size == 1
+        if self.cfg.edit:
+            assert self.cfg.online_load_image == True
+        scale = self.cfg.train_downsample_resolution
+
+        camera_dict = json.load(
+            open(os.path.join(self.cfg.dataroot, "transforms.json"), "r")
         )
-        self.widths: List[int] = (
-            [self.cfg.width] if isinstance(self.cfg.width, int) else self.cfg.width
-        )
-        self.batch_sizes: List[int] = (
-            [self.cfg.batch_size]
-            if isinstance(self.cfg.batch_size, int)
-            else self.cfg.batch_size
-        )
-        assert len(self.heights) == len(self.widths) == len(self.batch_sizes)
-        self.resolution_milestones: List[int]
-        if (
-            len(self.heights) == 1
-            and len(self.widths) == 1
-            and len(self.batch_sizes) == 1
-        ):
-            if len(self.cfg.resolution_milestones) > 0:
-                threestudio.warn(
-                    "Ignoring resolution_milestones since height and width are not changing"
-                )
-            self.resolution_milestones = [-1]
+        assert camera_dict["camera_model"] == "OPENCV"
+
+        frames = camera_dict["frames"]
+        frames = frames[:: self.cfg.train_data_interval]
+        if self.cfg.max_train_nums > 0:
+            frames = frames[: self.cfg.max_train_nums]
+        frames_proj = []
+        frames_c2w = []
+        frames_position = []
+        frames_direction = []
+        frames_img = []
+        frames_mask = []
+        frames_moment = []
+        self.frames_file_path = []
+        self.frames_mask_path = []
+        self.frames_intrinsic = []
+        self.frames_bbox = []
+
+        self.frames_t0 = []
+        self.step = 0
+
+        self.frame_w = frames[0]["w"] // scale
+        self.frame_h = frames[0]["h"] // scale
+        threestudio.info("Loading frames...")
+        self.n_frames = len(frames)
+
+        c2w_list = []
+        for frame in tqdm(frames):
+            extrinsic: Float[Tensor, "4 4"] = torch.as_tensor(
+                frame["transform_matrix"], dtype=torch.float32
+            )
+            c2w = extrinsic
+            c2w_list.append(c2w)
+        c2w_list = torch.stack(c2w_list, dim=0)
+
+        if self.cfg.camera_layout == "around":
+            c2w_list[:, :3, 3] -= torch.mean(c2w_list[:, :3, 3], dim=0).unsqueeze(0)
+        elif self.cfg.camera_layout == "front":
+            assert self.cfg.camera_distance > 0
+            c2w_list[:, :3, 3] -= torch.mean(c2w_list[:, :3, 3], dim=0).unsqueeze(0)
+            z_vector = torch.zeros(c2w_list.shape[0], 3, 1)
+            z_vector[:, 2, :] = -1
+            rot_z_vector = c2w_list[:, :3, :3] @ z_vector
+            rot_z_vector = torch.mean(rot_z_vector, dim=0).unsqueeze(0)
+            c2w_list[:, :3, 3] -= rot_z_vector[:, :, 0] * self.cfg.camera_distance
+        elif self.cfg.camera_layout == "default":
+            pass
         else:
-            assert len(self.heights) == len(self.cfg.resolution_milestones) + 1
-            self.resolution_milestones = [-1] + self.cfg.resolution_milestones
+            raise ValueError(
+                f"Unknown camera layout {self.cfg.camera_layout}. Now support only around and front."
+            )
 
-        self.directions_unit_focals = [
-            get_ray_directions(H=height, W=width, focal=1.0)
-            for (height, width) in zip(self.heights, self.widths)
-        ]
-        self.height: int = self.heights[0]
-        self.width: int = self.widths[0]
-        self.batch_size: int = self.batch_sizes[0]
-        self.directions_unit_focal = self.directions_unit_focals[0]
-        self.elevation_range = self.cfg.elevation_range
-        self.azimuth_range = self.cfg.azimuth_range
-        self.camera_distance_range = self.cfg.camera_distance_range
-        self.fovy_range = self.cfg.fovy_range
+        for idx, frame in tqdm(enumerate(frames)):
+            intrinsic: Float[Tensor, "4 4"] = torch.eye(4)
+            intrinsic[0, 0] = frame["fl_x"] / scale
+            intrinsic[1, 1] = frame["fl_y"] / scale
+            intrinsic[0, 2] = frame["cx"] / scale
+            intrinsic[1, 2] = frame["cy"] / scale
 
-    def update_step(self, epoch: int, global_step: int, on_load_weights: bool = False):
-        size_ind = bisect.bisect_right(self.resolution_milestones, global_step) - 1
-        self.height = self.heights[size_ind]
-        self.width = self.widths[size_ind]
-        self.batch_size = self.batch_sizes[size_ind]
-        self.directions_unit_focal = self.directions_unit_focals[size_ind]
-        threestudio.debug(
-            f"Training height: {self.height}, width: {self.width}, batch_size: {self.batch_size}"
+            frame_path = os.path.join(self.cfg.dataroot, frame["file_path"])
+            if not self.cfg.online_load_image:
+                img = cv2.imread(frame_path)[:, :, ::-1].copy()
+                img = cv2.resize(img, (self.frame_w, self.frame_h))
+                img: Float[Tensor, "H W 3"] = torch.FloatTensor(img) / 255
+                frames_img.append(img)
+                direction: Float[Tensor, "H W 3"] = get_ray_directions(
+                    self.frame_h,
+                    self.frame_w,
+                    (intrinsic[0, 0], intrinsic[1, 1]),
+                    (intrinsic[0, 2], intrinsic[1, 2]),
+                    use_pixel_centers=False,
+                )
+                frames_direction.append(direction)
+                if frame.__contains__("mask_path"):
+                    mask_path = os.path.join(self.cfg.dataroot, frame["mask_path"])
+                    mask = cv2.imread(mask_path)
+                    mask = cv2.resize(mask, (self.frame_w, self.frame_h))
+                    mask: Float[Tensor, "H W 3"] = torch.FloatTensor(mask) / 255
+                    frames_mask.append(mask)
+
+            if frame.__contains__("bbox"):
+                self.frames_bbox.append(torch.FloatTensor(frame["bbox"]) / scale)
+
+            self.frames_file_path.append(frame_path)
+            if frame.__contains__("mask_path"):
+                mask_path = os.path.join(self.cfg.dataroot, frame["mask_path"])
+                self.frames_mask_path.append(mask_path)
+            self.frames_intrinsic.append(intrinsic)
+
+            c2w = c2w_list[idx]
+            camera_position: Float[Tensor, "3"] = c2w[:3, 3:].reshape(-1)
+
+            near = 0.01
+            far = 100.0
+            proj = convert_proj(intrinsic, self.frame_h, self.frame_w, near, far)
+            proj: Float[Tensor, "4 4"] = torch.FloatTensor(proj)
+
+            moment: Float[Tensor, "1"] = torch.zeros(1)
+            if frame.__contains__("moment"):
+                moment[0] = frame["moment"]
+                if moment[0] < 1e-3:
+                    self.frames_t0.append(idx)
+            else:
+                moment[0] = 0
+                self.frames_t0.append(idx)
+
+            frames_proj.append(proj)
+            frames_c2w.append(c2w)
+            frames_position.append(camera_position)
+            frames_moment.append(moment)
+        threestudio.info("Loaded frames.")
+
+        self.frames_proj: Float[Tensor, "B 4 4"] = torch.stack(frames_proj, dim=0)
+        self.frames_c2w: Float[Tensor, "B 4 4"] = torch.stack(frames_c2w, dim=0)
+        self.frames_position: Float[Tensor, "B 3"] = torch.stack(frames_position, dim=0)
+        if not self.cfg.online_load_image:
+            self.frames_img: Float[Tensor, "B H W 3"] = torch.stack(frames_img, dim=0)
+            if len(frames_mask) > 0:
+                self.frames_mask: Float[Tensor, "B H W 3"] = torch.stack(
+                    frames_mask, dim=0
+                )
+            self.frames_direction: Float[Tensor, "B H W 3"] = torch.stack(
+                frames_direction, dim=0
+            )
+            self.rays_o, self.rays_d = get_rays(
+                self.frames_direction, self.frames_c2w, keepdim=True
+            )
+        self.frames_moment: Float[Tensor, "B 1"] = torch.stack(frames_moment, dim=0)
+
+        self.mvp_mtx: Float[Tensor, "B 4 4"] = get_mvp_matrix(
+            self.frames_c2w, self.frames_proj
         )
-        # progressive view
-        self.progressive_view(global_step)
+        self.light_positions: Float[Tensor, "B 3"] = torch.zeros_like(
+            self.frames_position
+        )
+
+        if len(self.frames_bbox) > 0:
+            self.frames_bbox: Float[Tensor, "B 4"] = torch.stack(
+                self.frames_bbox, dim=0
+            )
+        self.batch_index = 0
 
     def __iter__(self):
         while True:
             yield {}
 
-    def progressive_view(self, global_step):
-        r = min(1.0, global_step / (self.cfg.progressive_until + 1))
-        self.elevation_range = [
-            (1 - r) * self.cfg.eval_elevation_deg + r * self.cfg.elevation_range[0],
-            (1 - r) * self.cfg.eval_elevation_deg + r * self.cfg.elevation_range[1],
-        ]
-        self.azimuth_range = [
-            (1 - r) * 0.0 + r * self.cfg.azimuth_range[0],
-            (1 - r) * 0.0 + r * self.cfg.azimuth_range[1],
-        ]
-        # self.camera_distance_range = [
-        #     (1 - r) * self.cfg.eval_camera_distance
-        #     + r * self.cfg.camera_distance_range[0],
-        #     (1 - r) * self.cfg.eval_camera_distance
-        #     + r * self.cfg.camera_distance_range[1],
-        # ]
-        # self.fovy_range = [
-        #     (1 - r) * self.cfg.eval_fovy_deg + r * self.cfg.fovy_range[0],
-        #     (1 - r) * self.cfg.eval_fovy_deg + r * self.cfg.fovy_range[1],
-        # ]
+    def update_step(self, epoch: int, global_step: int, on_load_weights: bool = False):
+        self.step = global_step
 
-    def collate(self, batch) -> Dict[str, Any]:
-        # sample elevation angles
-        elevation_deg: Float[Tensor, "B"]
-        elevation: Float[Tensor, "B"]
-        if random.random() < 0.5:
-            # sample elevation angles uniformly with a probability 0.5 (biased towards poles)
-            elevation_deg = (
-                torch.rand(self.batch_size)
-                * (self.elevation_range[1] - self.elevation_range[0])
-                + self.elevation_range[0]
-            )
-            elevation = elevation_deg * math.pi / 180
+    def collate(self, batch):
+        # index = torch.randint(0, self.n_frames, (1,)).item()
+        dataroot = self.cfg.dataroot
+        weight_list = np.ones((self.n_frames)) + 1e-6
+        if os.path.exists(os.path.join(dataroot, "status.json")):
+            status_json = json.load(open(os.path.join(dataroot, "status.json"), "r"))
+            for i in range(self.n_frames):
+                if status_json.__contains__(str(i)):
+                    weight_list[i] = status_json[str(i)]
+        weight_list = weight_list**2
+        weight_list = weight_list / (np.sum(weight_list))
+
+        if (self.cfg.online_load_image or self.step > self.cfg.initial_t0_step) and (
+            torch.randint(0, 1000, (1,)).item() % 2 == 0
+        ):
+            index = np.random.choice(np.arange(self.n_frames), (1), p=weight_list)[0]
+            # index = torch.randint(0, self.n_frames, (1,)).item()
         else:
-            # otherwise sample uniformly on sphere
-            elevation_range_percent = [
-                self.elevation_range[0] / 180.0 * math.pi,
-                self.elevation_range[1] / 180.0 * math.pi,
-            ]
-            # inverse transform sampling
-            elevation = torch.asin(
-                (
-                    torch.rand(self.batch_size)
-                    * (
-                        math.sin(elevation_range_percent[1])
-                        - math.sin(elevation_range_percent[0])
-                    )
-                    + math.sin(elevation_range_percent[0])
+            t0_index = torch.randint(0, len(self.frames_t0), (1,)).item()
+            index = self.frames_t0[t0_index]
+
+        # t0_index = torch.randint(0, len(self.frames_t0), (1,)).item()
+        # index = self.frames_t0[t0_index]
+        if not self.cfg.online_load_image:
+            frame_img = self.frames_img[index : index + 1]
+            rays_o = self.rays_o[index : index + 1]
+            rays_d = self.rays_d[index : index + 1]
+            if len(self.frames_mask_path) > 0:
+                mask_img = self.frames_mask[index : index + 1]
+            else:
+                mask_img = torch.ones_like(frame_img)
+        else:
+            img = cv2.imread(self.frames_file_path[index])[:, :, ::-1]
+            img = cv2.resize(img, (self.frame_w, self.frame_h))
+            if len(self.frames_mask_path) > 0:
+                mask = cv2.imread(self.frames_mask_path[index])
+                mask = cv2.resize(mask, (self.frame_w, self.frame_h))
+                mask_img: Float[Tensor, "H W 3"] = (
+                    torch.FloatTensor(mask).unsqueeze(0) / 255
                 )
+
+            frame_img: Float[Tensor, "H W 3"] = (
+                torch.FloatTensor(img).unsqueeze(0) / 255
             )
-            elevation_deg = elevation / math.pi * 180.0
-
-        # sample azimuth angles from a uniform distribution bounded by azimuth_range
-        azimuth_deg: Float[Tensor, "B"]
-        if self.cfg.batch_uniform_azimuth:
-            # ensures sampled azimuth angles in a batch cover the whole range
-            azimuth_deg = (
-                torch.rand(self.batch_size) + torch.arange(self.batch_size)
-            ) / self.batch_size * (
-                self.azimuth_range[1] - self.azimuth_range[0]
-            ) + self.azimuth_range[
-                0
-            ]
-        else:
-            # simple random sampling
-            azimuth_deg = (
-                torch.rand(self.batch_size)
-                * (self.azimuth_range[1] - self.azimuth_range[0])
-                + self.azimuth_range[0]
+            intrinsic = self.frames_intrinsic[index]
+            frame_direction = get_ray_directions(
+                self.frame_h,
+                self.frame_w,
+                (intrinsic[0, 0], intrinsic[1, 1]),
+                (intrinsic[0, 2], intrinsic[1, 2]),
+                use_pixel_centers=False,
+            ).unsqueeze(0)
+            rays_o, rays_d = get_rays(
+                frame_direction, self.frames_c2w[index : index + 1], keepdim=True
             )
-        azimuth = azimuth_deg * math.pi / 180
-
-        # sample distances from a uniform distribution bounded by distance_range
-        camera_distances: Float[Tensor, "B"] = (
-            torch.rand(self.batch_size)
-            * (self.camera_distance_range[1] - self.camera_distance_range[0])
-            + self.camera_distance_range[0]
-        )
-
-        # convert spherical coordinates to cartesian coordinates
-        # right hand coordinate system, x back, y right, z up
-        # elevation in (-90, 90), azimuth from +x to +y in (-180, 180)
-        camera_positions: Float[Tensor, "B 3"] = torch.stack(
-            [
-                camera_distances * torch.cos(elevation) * torch.cos(azimuth),
-                camera_distances * torch.cos(elevation) * torch.sin(azimuth),
-                camera_distances * torch.sin(elevation),
-            ],
-            dim=-1,
-        )
-
-        # default scene center at origin
-        center: Float[Tensor, "B 3"] = torch.zeros_like(camera_positions)
-        # default camera up direction as +z
-        up: Float[Tensor, "B 3"] = torch.as_tensor([0, 0, 1], dtype=torch.float32)[
-            None, :
-        ].repeat(self.batch_size, 1)
-
-        # sample camera perturbations from a uniform distribution [-camera_perturb, camera_perturb]
-        camera_perturb: Float[Tensor, "B 3"] = (
-            torch.rand(self.batch_size, 3) * 2 * self.cfg.camera_perturb
-            - self.cfg.camera_perturb
-        )
-        camera_positions = camera_positions + camera_perturb
-        # sample center perturbations from a normal distribution with mean 0 and std center_perturb
-        center_perturb: Float[Tensor, "B 3"] = (
-            torch.randn(self.batch_size, 3) * self.cfg.center_perturb
-        )
-        center = center + center_perturb
-        # sample up perturbations from a normal distribution with mean 0 and std up_perturb
-        up_perturb: Float[Tensor, "B 3"] = (
-            torch.randn(self.batch_size, 3) * self.cfg.up_perturb
-        )
-        up = up + up_perturb
-
-        # sample fovs from a uniform distribution bounded by fov_range
-        fovy_deg: Float[Tensor, "B"] = (
-            torch.rand(self.batch_size) * (self.fovy_range[1] - self.fovy_range[0])
-            + self.fovy_range[0]
-        )
-        fovy = fovy_deg * math.pi / 180
-
-        # sample light distance from a uniform distribution bounded by light_distance_range
-        light_distances: Float[Tensor, "B"] = (
-            torch.rand(self.batch_size)
-            * (self.cfg.light_distance_range[1] - self.cfg.light_distance_range[0])
-            + self.cfg.light_distance_range[0]
-        )
-
-        if self.cfg.light_sample_strategy == "dreamfusion":
-            # sample light direction from a normal distribution with mean camera_position and std light_position_perturb
-            light_direction: Float[Tensor, "B 3"] = F.normalize(
-                camera_positions
-                + torch.randn(self.batch_size, 3) * self.cfg.light_position_perturb,
-                dim=-1,
-            )
-            # get light position by scaling light direction by light distance
-            light_positions: Float[Tensor, "B 3"] = (
-                light_direction * light_distances[:, None]
-            )
-        elif self.cfg.light_sample_strategy == "magic3d":
-            # sample light direction within restricted angle range (pi/3)
-            local_z = F.normalize(camera_positions, dim=-1)
-            local_x = F.normalize(
-                torch.stack(
-                    [local_z[:, 1], -local_z[:, 0], torch.zeros_like(local_z[:, 0])],
-                    dim=-1,
-                ),
-                dim=-1,
-            )
-            local_y = F.normalize(torch.cross(local_z, local_x, dim=-1), dim=-1)
-            rot = torch.stack([local_x, local_y, local_z], dim=-1)
-            light_azimuth = (
-                torch.rand(self.batch_size) * math.pi * 2 - math.pi
-            )  # [-pi, pi]
-            light_elevation = (
-                torch.rand(self.batch_size) * math.pi / 3 + math.pi / 6
-            )  # [pi/6, pi/2]
-            light_positions_local = torch.stack(
-                [
-                    light_distances
-                    * torch.cos(light_elevation)
-                    * torch.cos(light_azimuth),
-                    light_distances
-                    * torch.cos(light_elevation)
-                    * torch.sin(light_azimuth),
-                    light_distances * torch.sin(light_elevation),
-                ],
-                dim=-1,
-            )
-            light_positions = (rot @ light_positions_local[:, :, None])[:, :, 0]
-        else:
-            raise ValueError(
-                f"Unknown light sample strategy: {self.cfg.light_sample_strategy}"
-            )
-
-        lookat: Float[Tensor, "B 3"] = F.normalize(center - camera_positions, dim=-1)
-        right: Float[Tensor, "B 3"] = F.normalize(torch.cross(lookat, up), dim=-1)
-        up = F.normalize(torch.cross(right, lookat), dim=-1)
-        c2w3x4: Float[Tensor, "B 3 4"] = torch.cat(
-            [torch.stack([right, up, -lookat], dim=-1), camera_positions[:, :, None]],
-            dim=-1,
-        )
-        c2w: Float[Tensor, "B 4 4"] = torch.cat(
-            [c2w3x4, torch.zeros_like(c2w3x4[:, :1])], dim=1
-        )
-        c2w[:, 3, 3] = 1.0
-
-        # get directions by dividing directions_unit_focal by focal length
-        focal_length: Float[Tensor, "B"] = 0.5 * self.height / torch.tan(0.5 * fovy)
-        directions: Float[Tensor, "B H W 3"] = self.directions_unit_focal[
-            None, :, :, :
-        ].repeat(self.batch_size, 1, 1, 1)
-        directions[:, :, :, :2] = (
-            directions[:, :, :, :2] / focal_length[:, None, None, None]
-        )
-
-        # Importance note: the returned rays_d MUST be normalized!
-        rays_o, rays_d = get_rays(
-            directions, c2w, keepdim=True, normalize=self.cfg.rays_d_normalize
-        )
-
-        self.proj_mtx: Float[Tensor, "B 4 4"] = get_projection_matrix(
-            fovy, self.width / self.height, 0.01, 100.0
-        )  # FIXME: hard-coded near and far
-        mvp_mtx: Float[Tensor, "B 4 4"] = get_mvp_matrix(c2w, self.proj_mtx)
-        self.fovy = fovy
-
-        return {
+        return_dict = {
+            "index": index,
             "rays_o": rays_o,
             "rays_d": rays_d,
-            "mvp_mtx": mvp_mtx,
-            "camera_positions": camera_positions,
-            "c2w": c2w,
-            "light_positions": light_positions,
-            "elevation": elevation_deg,
-            "azimuth": azimuth_deg,
-            "camera_distances": camera_distances,
-            "height": self.height,
-            "width": self.width,
-            "fovy": self.fovy,
-            "proj_mtx": self.proj_mtx,
+            "mvp_mtx": self.mvp_mtx[index : index + 1],
+            "proj": self.frames_proj[index : index + 1],
+            "c2w": self.frames_c2w[index : index + 1],
+            "camera_positions": self.frames_position[index : index + 1],
+            "light_positions": self.light_positions[index : index + 1],
+            "gt_rgb": frame_img,
+            "height": self.frame_h,
+            "width": self.frame_w,
+            "moment": self.frames_moment[index : index + 1],
+            "file_path": self.frames_file_path[index],
         }
+        if len(self.frames_mask_path) > 0:
+            return_dict.update(
+                {
+                    "frame_mask": mask_img,
+                }
+            )
+        if len(self.frames_bbox) > 0:
+            return_dict.update(
+                {
+                    "frame_bbox": self.frames_bbox[index : index + 1],
+                }
+            )
+        return return_dict
 
 
-class RandomCameraDataset(Dataset):
+class DynamicMultiviewDataset(Dataset):
     def __init__(self, cfg: Any, split: str) -> None:
         super().__init__()
-        self.cfg: RandomCameraDataModuleConfig = cfg
-        self.split = split
+        self.cfg: DynamicMultiviewsDataModuleConfig = cfg
 
-        if split == "val":
-            self.n_views = self.cfg.n_val_views
+        assert self.cfg.eval_batch_size == 1
+        scale = self.cfg.eval_downsample_resolution
+
+        camera_dict = json.load(
+            open(os.path.join(self.cfg.dataroot, "transforms.json"), "r")
+        )
+        assert camera_dict["camera_model"] == "OPENCV"
+
+        frames = camera_dict["frames"]
+        frames = frames[:: self.cfg.eval_data_interval]
+        self.frames_proj = []
+        self.frames_c2w = []
+        self.frames_position = []
+        self.frames_direction = []
+        self.frames_img = []
+        self.frames_moment = []
+        self.frames_bbox = []
+        self.frames_intrinsic = []
+        self.frames_path = []
+
+        self.frame_w = frames[0]["w"] // scale
+        self.frame_h = frames[0]["h"] // scale
+        threestudio.info("Loading frames...")
+        self.n_frames = len(frames)
+
+        self.c2w_list = []
+        for frame in tqdm(frames):
+            extrinsic: Float[Tensor, "4 4"] = torch.as_tensor(
+                frame["transform_matrix"], dtype=torch.float32
+            )
+            c2w = extrinsic
+            self.c2w_list.append(c2w)
+        self.c2w_list = torch.stack(self.c2w_list, dim=0)
+
+        if self.cfg.camera_layout == "around":
+            self.c2w_list[:, :3, 3] -= torch.mean(
+                self.c2w_list[:, :3, 3], dim=0
+            ).unsqueeze(0)
+        elif self.cfg.camera_layout == "front":
+            assert self.cfg.camera_distance > 0
+            self.c2w_list[:, :3, 3] -= torch.mean(
+                self.c2w_list[:, :3, 3], dim=0
+            ).unsqueeze(0)
+            z_vector = torch.zeros(self.c2w_list.shape[0], 3, 1)
+            z_vector[:, 2, :] = -1
+            rot_z_vector = self.c2w_list[:, :3, :3] @ z_vector
+            rot_z_vector = torch.mean(rot_z_vector, dim=0).unsqueeze(0)
+            self.c2w_list[:, :3, 3] -= rot_z_vector[:, :, 0] * self.cfg.camera_distance
+        elif self.cfg.camera_layout == "default":
+            pass
         else:
-            self.n_views = self.cfg.n_test_views
+            raise ValueError(
+                f"Unknown camera layout {self.cfg.camera_layout}. Now support only around and front."
+            )
 
-        azimuth_deg: Float[Tensor, "B"]
-        if self.split == "val":
-            # make sure the first and last view are not the same
-            azimuth_deg = torch.linspace(0, 360.0, self.n_views + 1)[: self.n_views]
+        if len(self.cfg.build_dataset_root) != 0:
+            idx0 = self.cfg.eval_interpolation[0]
+            idx1 = self.cfg.eval_interpolation[1]
+            moment0 = self.cfg.eval_time_interpolation[0]
+            moment1 = self.cfg.eval_time_interpolation[1]
+            eval_nums = self.cfg.eval_interpolation[2]
+            self.get_eval_interpolation(frames, idx0, idx1, 0, 0, 8 * 3)
+            import copy
+
+            new_json = copy.deepcopy(camera_dict)
+            new_frames = []
+
+            def get_frame(index, cam_index, time_index):
+                frame = {}
+                frame["fl_x"] = self.frames_intrinsic[index][0, 0].item()
+                frame["fl_y"] = self.frames_intrinsic[index][1, 1].item()
+                frame["cx"] = self.frames_intrinsic[index][0, 2].item()
+                frame["cy"] = self.frames_intrinsic[index][1, 2].item()
+                frame["w"] = self.frame_w
+                frame["h"] = self.frame_h
+                frame["file_path"] = os.path.join(
+                    self.cfg.build_image_name, "frame_%05d.jpg" % index
+                )
+                frame["moment"] = self.frames_moment[index].item()
+                frame["transform_matrix"] = [
+                    [self.frames_c2w[index][i][j].item() for j in range(4)]
+                    for i in range(4)
+                ]
+                frame["cam_index"] = cam_index
+                frame["time_index"] = time_index
+                self.frames_path.append(
+                    os.path.join(self.cfg.build_dataset_root, frame["file_path"])
+                )
+                return frame
+
+            # for cam_index in range(3):
+            #     for time_index in range(8):
+            #         index = cam_index * 8 + time_index
+            #         new_frames.append(get_frame(index, cam_index, time_index))
+            for time_index in range(8):
+                for cam_index in range(3):
+                    index = cam_index + time_index * 3
+                    new_frames.append(get_frame(index, cam_index, time_index))
+            base_index = 3 * 8
+            actual_total_nums = eval_nums // 8 * 8
+
+            if self.cfg.close_interval:
+                intersection = 1 / eval_nums
+            else:
+                intersection = 1 / (eval_nums - 1)
+            actual_time_residual = (1 + (eval_nums - actual_total_nums)) * intersection
+            self.get_eval_interpolation(
+                frames, idx0, idx1, 0, 1 - actual_time_residual, actual_total_nums
+            )
+            # self.get_eval_interpolation(frames, idx0, idx1, 1 - intersection, actual_time_residual - intersection, actual_total_nums)
+            # self.get_eval_interpolation(frames, idx0, idx1, 1 - actual_time_residual, 0, actual_total_nums)
+
+            self.get_eval_interpolation(
+                frames, idx0, idx0, 0, 1 - actual_time_residual, actual_total_nums
+            )
+            self.get_eval_interpolation(
+                frames, idx1, idx1, 0, 1 - actual_time_residual, actual_total_nums
+            )
+            # for cam_index in range(actual_total_nums // 8 * 2):
+            #     for time_index in range(8):
+            #         index = base_index + cam_index * 8 + time_index
+            #         new_frames.append(get_frame(index, cam_index + base_index // 8, time_index))
+            for b in range(3):
+                for time_index in range(8):
+                    for cam_index in range(actual_total_nums // 8):
+                        index = (
+                            base_index + cam_index + time_index * actual_total_nums // 8
+                        )
+                        new_frames.append(
+                            get_frame(index, cam_index + base_index // 8, time_index)
+                        )
+                base_index += actual_total_nums
+
+            new_json["frames"] = new_frames
+            os.makedirs(self.cfg.build_dataset_root, exist_ok=True)
+            if self.cfg.build_json:
+                json.dump(
+                    new_json,
+                    open(
+                        os.path.join(self.cfg.build_dataset_root, "transforms.json"),
+                        "w",
+                    ),
+                    indent=4,
+                )
+        elif not (self.cfg.eval_interpolation is None):
+            idx0 = self.cfg.eval_interpolation[0]
+            idx1 = self.cfg.eval_interpolation[1]
+            moment0 = self.cfg.eval_time_interpolation[0]
+            moment1 = self.cfg.eval_time_interpolation[1]
+            eval_nums = self.cfg.eval_interpolation[2]
+            if self.cfg.time_upsample:
+                eval_nums *= 2
+            self.get_eval_interpolation(frames, idx0, idx1, moment0, moment1, eval_nums)
         else:
-            azimuth_deg = torch.linspace(0, 360.0, self.n_views)
-        elevation_deg: Float[Tensor, "B"] = torch.full_like(
-            azimuth_deg, self.cfg.eval_elevation_deg
+            for idx, frame in tqdm(enumerate(frames)):
+                intrinsic: Float[Tensor, "4 4"] = torch.eye(4)
+                intrinsic[0, 0] = frame["fl_x"] / scale
+                intrinsic[1, 1] = frame["fl_y"] / scale
+                intrinsic[0, 2] = frame["cx"] / scale
+                intrinsic[1, 2] = frame["cy"] / scale
+
+                frame_path = os.path.join(self.cfg.dataroot, frame["file_path"])
+                img = cv2.imread(frame_path)[:, :, ::-1].copy()
+                img = cv2.resize(img, (self.frame_w, self.frame_h))
+                img: Float[Tensor, "H W 3"] = torch.FloatTensor(img) / 255
+                self.frames_img.append(img)
+
+                direction: Float[Tensor, "H W 3"] = get_ray_directions(
+                    self.frame_h,
+                    self.frame_w,
+                    (intrinsic[0, 0], intrinsic[1, 1]),
+                    (intrinsic[0, 2], intrinsic[1, 2]),
+                    use_pixel_centers=False,
+                )
+
+                c2w = self.c2w_list[idx]
+                camera_position: Float[Tensor, "3"] = c2w[:3, 3:].reshape(-1)
+
+                near = 0.01
+                far = 100.0
+                K = intrinsic
+                proj = convert_proj(intrinsic, self.frame_h, self.frame_w, near, far)
+                proj: Float[Tensor, "4 4"] = torch.FloatTensor(proj)
+
+                moment: Float[Tensor, "1"] = torch.zeros(1)
+                if frame.__contains__("moment"):
+                    moment[0] = frame["moment"]
+                else:
+                    moment[0] = 0
+                if frame.__contains__("bbox"):
+                    self.frames_bbox.append(torch.FloatTensor(frame["bbox"]) / scale)
+
+                self.frames_proj.append(proj)
+                self.frames_c2w.append(c2w)
+                self.frames_position.append(camera_position)
+                self.frames_direction.append(direction)
+                self.frames_moment.append(moment)
+                self.frames_intrinsic.append(intrinsic)
+        threestudio.info("Loaded frames.")
+
+        self.frames_proj: Float[Tensor, "B 4 4"] = torch.stack(self.frames_proj, dim=0)
+        self.frames_c2w: Float[Tensor, "B 4 4"] = torch.stack(self.frames_c2w, dim=0)
+        self.frames_position: Float[Tensor, "B 3"] = torch.stack(
+            self.frames_position, dim=0
         )
-        camera_distances: Float[Tensor, "B"] = torch.full_like(
-            elevation_deg, self.cfg.eval_camera_distance
+        self.frames_direction: Float[Tensor, "B H W 3"] = torch.stack(
+            self.frames_direction, dim=0
+        )
+        self.frames_intrinsic: Float[Tensor, "B H W 3"] = torch.stack(
+            self.frames_intrinsic, dim=0
+        )
+        self.frames_img: Float[Tensor, "B H W 3"] = torch.stack(self.frames_img, dim=0)
+        self.frames_moment: Float[Tensor, "B 1"] = torch.stack(
+            self.frames_moment, dim=0
         )
 
-        elevation = elevation_deg * math.pi / 180
-        azimuth = azimuth_deg * math.pi / 180
+        self.rays_o, self.rays_d = get_rays(
+            self.frames_direction, self.frames_c2w, keepdim=True
+        )
+        self.mvp_mtx: Float[Tensor, "B 4 4"] = get_mvp_matrix(
+            self.frames_c2w, self.frames_proj
+        )
+        self.light_positions: Float[Tensor, "B 3"] = torch.zeros_like(
+            self.frames_position
+        )
+        if len(self.frames_bbox) > 0:
+            self.frames_bbox: Float[Tensor, "B 4"] = torch.stack(
+                self.frames_bbox, dim=0
+            )
 
-        # convert spherical coordinates to cartesian coordinates
-        # right hand coordinate system, x back, y right, z up
-        # elevation in (-90, 90), azimuth from +x to +y in (-180, 180)
-        camera_positions: Float[Tensor, "B 3"] = torch.stack(
-            [
-                camera_distances * torch.cos(elevation) * torch.cos(azimuth),
-                camera_distances * torch.cos(elevation) * torch.sin(azimuth),
-                camera_distances * torch.sin(elevation),
-            ],
-            dim=-1,
-        )
+    def get_eval_interpolation(self, frames, idx0, idx1, moment0, moment1, eval_nums):
+        scale = self.cfg.eval_downsample_resolution
 
-        # default scene center at origin
-        center: Float[Tensor, "B 3"] = torch.zeros_like(camera_positions)
-        # default camera up direction as +z
-        up: Float[Tensor, "B 3"] = torch.as_tensor([0, 0, 1], dtype=torch.float32)[
-            None, :
-        ].repeat(self.cfg.eval_batch_size, 1)
+        frame = frames[idx0]
+        intrinsic: Float[Tensor, "4 4"] = torch.eye(4)
+        intrinsic[0, 0] = frame["fl_x"] / scale
+        intrinsic[1, 1] = frame["fl_y"] / scale
+        intrinsic[0, 2] = frame["cx"] / scale
+        intrinsic[1, 2] = frame["cy"] / scale
+        if frame.__contains__("bbox"):
+            bbox0 = torch.FloatTensor(frames[idx0]["bbox"]) / scale
+            bbox1 = torch.FloatTensor(frames[idx1]["bbox"]) / scale
+        for ratio in np.linspace(0, 1, eval_nums):
+            img: Float[Tensor, "H W 3"] = torch.zeros((self.frame_h, self.frame_w, 3))
+            self.frames_img.append(img)
+            direction: Float[Tensor, "H W 3"] = get_ray_directions(
+                self.frame_h,
+                self.frame_w,
+                (intrinsic[0, 0], intrinsic[1, 1]),
+                (intrinsic[0, 2], intrinsic[1, 2]),
+                use_pixel_centers=False,
+            )
 
-        fovy_deg: Float[Tensor, "B"] = torch.full_like(
-            elevation_deg, self.cfg.eval_fovy_deg
-        )
-        fovy = fovy_deg * math.pi / 180
-        light_positions: Float[Tensor, "B 3"] = camera_positions
+            if self.cfg.sin_interpolation:
+                space_ratio = (ratio - 0.5) * math.acos(-1)
+                space_ratio = math.sin(space_ratio) * 0.5 + 0.5
+            else:
+                space_ratio = ratio
+            c2w = torch.FloatTensor(
+                inter_pose(self.c2w_list[idx0], self.c2w_list[idx1], space_ratio)
+            )
+            camera_position: Float[Tensor, "3"] = c2w[:3, 3:].reshape(-1)
 
-        lookat: Float[Tensor, "B 3"] = F.normalize(center - camera_positions, dim=-1)
-        right: Float[Tensor, "B 3"] = F.normalize(torch.cross(lookat, up), dim=-1)
-        up = F.normalize(torch.cross(right, lookat), dim=-1)
-        c2w3x4: Float[Tensor, "B 3 4"] = torch.cat(
-            [torch.stack([right, up, -lookat], dim=-1), camera_positions[:, :, None]],
-            dim=-1,
-        )
-        c2w: Float[Tensor, "B 4 4"] = torch.cat(
-            [c2w3x4, torch.zeros_like(c2w3x4[:, :1])], dim=1
-        )
-        c2w[:, 3, 3] = 1.0
+            near = 0.1
+            far = 1000.0
+            proj = convert_proj(intrinsic, self.frame_h, self.frame_w, near, far)
+            proj: Float[Tensor, "4 4"] = torch.FloatTensor(proj)
 
-        # get directions by dividing directions_unit_focal by focal length
-        focal_length: Float[Tensor, "B"] = (
-            0.5 * self.cfg.eval_height / torch.tan(0.5 * fovy)
-        )
-        directions_unit_focal = get_ray_directions(
-            H=self.cfg.eval_height, W=self.cfg.eval_width, focal=1.0
-        )
-        directions: Float[Tensor, "B H W 3"] = directions_unit_focal[
-            None, :, :, :
-        ].repeat(self.n_views, 1, 1, 1)
-        directions[:, :, :, :2] = (
-            directions[:, :, :, :2] / focal_length[:, None, None, None]
-        )
+            moment: Float[Tensor, "1"] = torch.zeros(1)
+            moment[0] = moment0 * (1 - ratio) + moment1 * ratio
 
-        rays_o, rays_d = get_rays(
-            directions, c2w, keepdim=True, normalize=self.cfg.rays_d_normalize
-        )
-        self.proj_mtx: Float[Tensor, "B 4 4"] = get_projection_matrix(
-            fovy, self.cfg.eval_width / self.cfg.eval_height, 0.01, 100.0
-        )  # FIXME: hard-coded near and far
-        mvp_mtx: Float[Tensor, "B 4 4"] = get_mvp_matrix(c2w, self.proj_mtx)
-
-        self.rays_o, self.rays_d = rays_o, rays_d
-        self.mvp_mtx = mvp_mtx
-        self.c2w = c2w
-        self.camera_positions = camera_positions
-        self.light_positions = light_positions
-        self.elevation, self.azimuth = elevation, azimuth
-        self.elevation_deg, self.azimuth_deg = elevation_deg, azimuth_deg
-        self.camera_distances = camera_distances
-        self.fovy = fovy
+            self.frames_proj.append(proj)
+            self.frames_c2w.append(c2w)
+            self.frames_position.append(camera_position)
+            self.frames_direction.append(direction)
+            self.frames_moment.append(moment)
+            self.frames_intrinsic.append(intrinsic)
+            if frame.__contains__("bbox"):
+                self.frames_bbox.append(bbox0 * (1 - ratio) + bbox1 * ratio)
 
     def __len__(self):
-        return self.n_views
+        return self.frames_proj.shape[0]
 
     def __getitem__(self, index):
-        return {
+        return_dict = {
             "index": index,
             "rays_o": self.rays_o[index],
             "rays_d": self.rays_d[index],
             "mvp_mtx": self.mvp_mtx[index],
-            "c2w": self.c2w[index],
-            "camera_positions": self.camera_positions[index],
+            "proj": self.frames_proj[index],
+            "c2w": self.frames_c2w[index],
+            "intrinsic": self.frames_intrinsic[index],
+            "camera_positions": self.frames_position[index],
             "light_positions": self.light_positions[index],
-            "elevation": self.elevation_deg[index],
-            "azimuth": self.azimuth_deg[index],
-            "camera_distances": self.camera_distances[index],
-            "height": self.cfg.eval_height,
-            "width": self.cfg.eval_width,
-            "fovy": self.fovy[index],
-            "proj_mtx": self.proj_mtx[index],
+            "gt_rgb": self.frames_img[index],
+            "moment": self.frames_moment[index],
         }
+        if len(self.frames_bbox) > 0:
+            return_dict.update(
+                {
+                    "frame_bbox": self.frames_bbox[index],
+                }
+            )
+        if len(self.frames_path) > 0:
+            return_dict.update(
+                {
+                    "frame_path": self.frames_path[index],
+                }
+            )
+        if self.cfg.time_upsample:
+            return_dict.update(
+                {
+                    "time_interval": 1.0 / len(self.frames_img),
+                    "need_time_interpolation": index % 2 == 0,
+                }
+            )
+        return return_dict
+
+    def __iter__(self):
+        while True:
+            yield {}
 
     def collate(self, batch):
         batch = torch.utils.data.default_collate(batch)
-        batch.update({"height": self.cfg.eval_height, "width": self.cfg.eval_width})
+        batch.update({"height": self.frame_h, "width": self.frame_w})
         return batch
 
 
-@register("random-camera-datamodule")
-class RandomCameraDataModule(pl.LightningDataModule):
-    cfg: RandomCameraDataModuleConfig
+@register("dynamic-multiview-camera-datamodule")
+class DynamicMultiviewDataModule(pl.LightningDataModule):
+    cfg: DynamicMultiviewsDataModuleConfig
 
     def __init__(self, cfg: Optional[Union[dict, DictConfig]] = None) -> None:
         super().__init__()
-        self.cfg = parse_structured(RandomCameraDataModuleConfig, cfg)
+        self.cfg = parse_structured(DynamicMultiviewsDataModuleConfig, cfg)
 
     def setup(self, stage=None) -> None:
         if stage in [None, "fit"]:
-            self.train_dataset = RandomCameraIterableDataset(self.cfg)
+            self.train_dataset = DynamicMultiviewIterableDataset(self.cfg)
         if stage in [None, "fit", "validate"]:
-            self.val_dataset = RandomCameraDataset(self.cfg, "val")
+            self.val_dataset = DynamicMultiviewDataset(self.cfg, "val")
         if stage in [None, "test", "predict"]:
-            self.test_dataset = RandomCameraDataset(self.cfg, "test")
+            self.test_dataset = DynamicMultiviewDataset(self.cfg, "test")
 
     def prepare_data(self):
         pass
 
     def general_loader(self, dataset, batch_size, collate_fn=None) -> DataLoader:
-        return DataLoader(
-            dataset,
-            # very important to disable multi-processing if you want to change self attributes at runtime!
-            # (for example setting self.width and self.height in update_step)
-            num_workers=0,  # type: ignore
-            batch_size=batch_size,
-            collate_fn=collate_fn,
-        )
+        if (
+            hasattr(dataset.cfg, "online_load_image")
+            and dataset.cfg.online_load_image == True
+        ):
+            return DataLoader(
+                dataset,
+                num_workers=8,  # type: ignore
+                batch_size=batch_size,
+                collate_fn=collate_fn,
+            )
+        else:
+            return DataLoader(
+                dataset,
+                num_workers=0,  # type: ignore
+                batch_size=batch_size,
+                collate_fn=collate_fn,
+            )
 
     def train_dataloader(self) -> DataLoader:
         return self.general_loader(
-            self.train_dataset, batch_size=None, collate_fn=self.train_dataset.collate
+            self.train_dataset, batch_size=1, collate_fn=self.train_dataset.collate
         )
 
     def val_dataloader(self) -> DataLoader:
