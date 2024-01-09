@@ -21,6 +21,7 @@ class GaussianBatchRenderer:
             c2w = batch["c2w"][batch_idx : batch_idx + 1]
             cx = batch["cx"][batch_idx : batch_idx + 1]
             cy = batch["cy"][batch_idx : batch_idx + 1]
+            batch["batch_idx"] = batch_idx
             w2c, proj, cam_p = get_cam_info_gaussian(
                 c2w=c2w, fovx=fovx, fovy=fovy, cx=cx, cy=cy, znear=0.1, zfar=100
             )

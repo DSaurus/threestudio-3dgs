@@ -3,9 +3,9 @@ import random
 
 import torch
 import torch.nn.functional as F
-from threestudio.utils.typing import *
 
-from .camera_utils import CameraOutput
+from gsstudio.data.utils.camera_utils import CameraOutput
+from gsstudio.utils.typing import *
 
 
 class CameraSampler:

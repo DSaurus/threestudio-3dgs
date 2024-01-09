@@ -4,18 +4,13 @@ from dataclasses import dataclass
 
 import torch
 import torch.nn.functional as F
-from threestudio.utils.typing import *
+
+from gsstudio.data.utils.data_utils import DataOutput
+from gsstudio.utils.typing import *
 
 
-@dataclass
-class LightOutput:
-    light_positions: Float[Tensor, "B 3"]
-
-    def to_dict(self):
-        return {"light_positions": self.light_positions}
-
-    def get_index(self, index):
-        return {"light_positions": self.light_positions[index]}
+class LightOutput(DataOutput):
+    light_positions: Float[Tensor, "B 3"] = None
 
 
 class LightSampler:

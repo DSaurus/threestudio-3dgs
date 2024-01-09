@@ -2,13 +2,25 @@ from dataclasses import dataclass
 
 import torch
 import torch.nn.functional as F
-from threestudio.utils.typing import *
 
+from gsstudio.data.utils.data_utils import DataOutput
 from gsstudio.renderer.renderer_utils import (
     get_projection_matrix_advanced,
     get_ray_directions,
     get_rays,
 )
+from gsstudio.utils.typing import *
+
+
+def convert_gl2cv(C2W, intrinsic, height):
+    # print(C2W.shape)
+    flip_yz = torch.eye(4, device=C2W.device).unsqueeze(0).repeat(C2W.shape[0], 1, 1)
+    # flip_yz[1, 1] = -1
+    flip_yz[:, 2, 2] = -1
+    C2W = torch.matmul(C2W, flip_yz)
+    intrinsic[:, 1, 1] *= -1
+    intrinsic[:, 1, 2] = height - intrinsic[:, 1, 2]
+    return C2W, intrinsic
 
 
 def samples2matrix(
@@ -67,7 +79,7 @@ def intrinsic2proj_mtx(intrinsic, height, width, **kwargs):
     )
 
 
-class CameraOutput:
+class CameraOutput(DataOutput):
     width: int
     height: int
 
@@ -97,31 +109,3 @@ class CameraOutput:
         "elevation_deg": "elevation",
         "azimuth_deg": "azimuth",
     }
-
-    def __init__(self, **kwargs):
-        for key in kwargs:
-            if hasattr(self, key):
-                setattr(self, key, kwargs[key])
-
-    def to_dict(self):
-        output = {}
-        for key in dir(self):
-            prop = getattr(self, key)
-            if prop is not None:
-                if key in self.key_mapping:
-                    key = self.key_mapping[key]
-                output[key] = prop
-        return output
-
-    def get_index(self, index):
-        output = {}
-        for key in dir(self):
-            prop = getattr(self, key)
-            if prop is not None:
-                if key in self.key_mapping:
-                    key = self.key_mapping[key]
-                if isinstance(prop, torch.Tensor):
-                    output[key] = prop[index]
-                else:
-                    output[key] = prop
-        return output

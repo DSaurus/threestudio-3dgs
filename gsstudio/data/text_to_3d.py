@@ -10,11 +10,12 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 
 import gsstudio
+from gsstudio.data.utils.camera_generation import CameraSampler
+from gsstudio.data.utils.camera_utils import matrix2rays, samples2matrix
+from gsstudio.data.utils.light_generation import LightSampler
 from gsstudio.utils.base import Updateable
 from gsstudio.utils.config import parse_structured
 from gsstudio.utils.typing import *
-
-from .camera_generation import CameraSampler, LightSampler, matrix2rays, samples2matrix
 
 
 @dataclass

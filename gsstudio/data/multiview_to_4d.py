@@ -20,22 +20,7 @@ from threestudio.utils.typing import *
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from tqdm import tqdm
 
-
-def convert_pose(C2W):
-    flip_yz = torch.eye(4)
-    flip_yz[1, 1] = -1
-    flip_yz[2, 2] = -1
-    C2W = torch.matmul(C2W, flip_yz)
-    return C2W
-
-
-def convert_proj(K, H, W, near, far):
-    return [
-        [2 * K[0, 0] / W, -2 * K[0, 1] / W, (W - 2 * K[0, 2]) / W, 0],
-        [0, -2 * K[1, 1] / H, (H - 2 * K[1, 2]) / H, 0],
-        [0, 0, (-far - near) / (far - near), -2 * far * near / (far - near)],
-        [0, 0, -1, 0],
-    ]
+from gsstudio.data.utils.camera_loader import CameraLoader
 
 
 def inter_pose(pose_0, pose_1, ratio):
@@ -96,6 +81,17 @@ class DynamicMultiviewIterableDataset(IterableDataset, Updateable):
             assert self.cfg.online_load_image == True
         scale = self.cfg.train_downsample_resolution
 
+        self.camera_loader = CameraLoader(
+            self.cfg.dataroot,
+            max_nums=self.cfg.max_train_nums,
+            interval=self.cfg.train_data_interval,
+            scale=scale,
+            offline_load=not self.cfg.online_load_image,
+        )
+        self.camera_loader.set_layout(self.cfg.camera_layout, self.cfg.camera_distance)
+        self.cameras = self.camera_loader.cameras
+        self.images = self.camera_loader.images
+
     def __iter__(self):
         while True:
             yield {}
@@ -106,23 +102,12 @@ class DynamicMultiviewIterableDataset(IterableDataset, Updateable):
     def collate(self, batch):
         # index = torch.randint(0, self.n_frames, (1,)).item()
         dataroot = self.cfg.dataroot
-        # weight_list = np.ones((self.n_frames)) + 1e-6
-        # if os.path.exists(os.path.join(dataroot, "status.json")):
-        #     status_json = json.load(open(os.path.join(dataroot, "status.json"), "r"))
-        #     for i in range(self.n_frames):
-        #         if status_json.__contains__(str(i)):
-        #             weight_list[i] = status_json[str(i)]
-        # weight_list = weight_list**2
-        # weight_list = weight_list / (np.sum(weight_list))
-
-        # if (self.cfg.online_load_image or self.step > self.cfg.initial_t0_step) and (
-        #     torch.randint(0, 1000, (1,)).item() % 2 == 0
-        # ):
-        #     index = np.random.choice(np.arange(self.n_frames), (1), p=weight_list)[0]
-        #     # index = torch.randint(0, self.n_frames, (1,)).item()
-        # else:
-        t0_index = torch.randint(0, len(self.frames_t0), (1,)).item()
-        index = self.frames_t0[t0_index]
+        index = torch.randint(0, self.n_frames, (1,)).item()
+        output = {
+            **self.cameras.get_index(index, is_batch=True),
+            **self.images.get_index(index, is_batch=True),
+        }
+        return output
 
         # t0_index = torch.randint(0, len(self.frames_t0), (1,)).item()
         # index = self.frames_t0[t0_index]
@@ -158,6 +143,7 @@ class DynamicMultiviewIterableDataset(IterableDataset, Updateable):
             rays_o, rays_d = get_rays(
                 frame_direction, self.frames_c2w[index : index + 1], keepdim=True
             )
+
         return_dict = {
             "index": index,
             "rays_o": rays_o,
@@ -248,96 +234,7 @@ class DynamicMultiviewDataset(Dataset):
                 f"Unknown camera layout {self.cfg.camera_layout}. Now support only around and front."
             )
 
-        if len(self.cfg.build_dataset_root) != 0:
-            idx0 = self.cfg.eval_interpolation[0]
-            idx1 = self.cfg.eval_interpolation[1]
-            moment0 = self.cfg.eval_time_interpolation[0]
-            moment1 = self.cfg.eval_time_interpolation[1]
-            eval_nums = self.cfg.eval_interpolation[2]
-            self.get_eval_interpolation(frames, idx0, idx1, 0, 0, 8 * 3)
-            import copy
-
-            new_json = copy.deepcopy(camera_dict)
-            new_frames = []
-
-            def get_frame(index, cam_index, time_index):
-                frame = {}
-                frame["fl_x"] = self.frames_intrinsic[index][0, 0].item()
-                frame["fl_y"] = self.frames_intrinsic[index][1, 1].item()
-                frame["cx"] = self.frames_intrinsic[index][0, 2].item()
-                frame["cy"] = self.frames_intrinsic[index][1, 2].item()
-                frame["w"] = self.frame_w
-                frame["h"] = self.frame_h
-                frame["file_path"] = os.path.join(
-                    self.cfg.build_image_name, "frame_%05d.jpg" % index
-                )
-                frame["moment"] = self.frames_moment[index].item()
-                frame["transform_matrix"] = [
-                    [self.frames_c2w[index][i][j].item() for j in range(4)]
-                    for i in range(4)
-                ]
-                frame["cam_index"] = cam_index
-                frame["time_index"] = time_index
-                self.frames_path.append(
-                    os.path.join(self.cfg.build_dataset_root, frame["file_path"])
-                )
-                return frame
-
-            # for cam_index in range(3):
-            #     for time_index in range(8):
-            #         index = cam_index * 8 + time_index
-            #         new_frames.append(get_frame(index, cam_index, time_index))
-            for time_index in range(8):
-                for cam_index in range(3):
-                    index = cam_index + time_index * 3
-                    new_frames.append(get_frame(index, cam_index, time_index))
-            base_index = 3 * 8
-            actual_total_nums = eval_nums // 8 * 8
-
-            if self.cfg.close_interval:
-                intersection = 1 / eval_nums
-            else:
-                intersection = 1 / (eval_nums - 1)
-            actual_time_residual = (1 + (eval_nums - actual_total_nums)) * intersection
-            self.get_eval_interpolation(
-                frames, idx0, idx1, 0, 1 - actual_time_residual, actual_total_nums
-            )
-            # self.get_eval_interpolation(frames, idx0, idx1, 1 - intersection, actual_time_residual - intersection, actual_total_nums)
-            # self.get_eval_interpolation(frames, idx0, idx1, 1 - actual_time_residual, 0, actual_total_nums)
-
-            self.get_eval_interpolation(
-                frames, idx0, idx0, 0, 1 - actual_time_residual, actual_total_nums
-            )
-            self.get_eval_interpolation(
-                frames, idx1, idx1, 0, 1 - actual_time_residual, actual_total_nums
-            )
-            # for cam_index in range(actual_total_nums // 8 * 2):
-            #     for time_index in range(8):
-            #         index = base_index + cam_index * 8 + time_index
-            #         new_frames.append(get_frame(index, cam_index + base_index // 8, time_index))
-            for b in range(3):
-                for time_index in range(8):
-                    for cam_index in range(actual_total_nums // 8):
-                        index = (
-                            base_index + cam_index + time_index * actual_total_nums // 8
-                        )
-                        new_frames.append(
-                            get_frame(index, cam_index + base_index // 8, time_index)
-                        )
-                base_index += actual_total_nums
-
-            new_json["frames"] = new_frames
-            os.makedirs(self.cfg.build_dataset_root, exist_ok=True)
-            if self.cfg.build_json:
-                json.dump(
-                    new_json,
-                    open(
-                        os.path.join(self.cfg.build_dataset_root, "transforms.json"),
-                        "w",
-                    ),
-                    indent=4,
-                )
-        elif not (self.cfg.eval_interpolation is None):
+        if not (self.cfg.eval_interpolation is None):
             idx0 = self.cfg.eval_interpolation[0]
             idx1 = self.cfg.eval_interpolation[1]
             moment0 = self.cfg.eval_time_interpolation[0]
@@ -392,36 +289,6 @@ class DynamicMultiviewDataset(Dataset):
                 self.frames_moment.append(moment)
                 self.frames_intrinsic.append(intrinsic)
         threestudio.info("Loaded frames.")
-
-        self.frames_proj: Float[Tensor, "B 4 4"] = torch.stack(self.frames_proj, dim=0)
-        self.frames_c2w: Float[Tensor, "B 4 4"] = torch.stack(self.frames_c2w, dim=0)
-        self.frames_position: Float[Tensor, "B 3"] = torch.stack(
-            self.frames_position, dim=0
-        )
-        self.frames_direction: Float[Tensor, "B H W 3"] = torch.stack(
-            self.frames_direction, dim=0
-        )
-        self.frames_intrinsic: Float[Tensor, "B H W 3"] = torch.stack(
-            self.frames_intrinsic, dim=0
-        )
-        self.frames_img: Float[Tensor, "B H W 3"] = torch.stack(self.frames_img, dim=0)
-        self.frames_moment: Float[Tensor, "B 1"] = torch.stack(
-            self.frames_moment, dim=0
-        )
-
-        self.rays_o, self.rays_d = get_rays(
-            self.frames_direction, self.frames_c2w, keepdim=True
-        )
-        self.mvp_mtx: Float[Tensor, "B 4 4"] = get_mvp_matrix(
-            self.frames_c2w, self.frames_proj
-        )
-        self.light_positions: Float[Tensor, "B 3"] = torch.zeros_like(
-            self.frames_position
-        )
-        if len(self.frames_bbox) > 0:
-            self.frames_bbox: Float[Tensor, "B 4"] = torch.stack(
-                self.frames_bbox, dim=0
-            )
 
     def get_eval_interpolation(self, frames, idx0, idx1, moment0, moment1, eval_nums):
         scale = self.cfg.eval_downsample_resolution

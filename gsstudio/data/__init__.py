@@ -1,1 +1,1 @@
-from . import text_to_3d
+from . import multiview_to_3d, text_to_3d

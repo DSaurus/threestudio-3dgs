@@ -2,10 +2,12 @@ from dataclasses import dataclass
 
 import cv2
 import torch
-from threestudio.utils.typing import *
+
+from gsstudio.data.utils.data_utils import DataOutput
+from gsstudio.utils.typing import *
 
 
-class ImageOutput:
+class ImageOutput(DataOutput):
     frame_image_path: List[str] = []
     frame_mask_path: List[str] = []
     bbox: Float[Tensor, "B 4"]
@@ -14,35 +16,7 @@ class ImageOutput:
     width: int = None
     height: int = None
 
-    key_mapping = {}
-
-    def __init__(self, **kwargs):
-        for key in kwargs:
-            if hasattr(self, key):
-                setattr(self, key, kwargs[key])
-
-    def to_dict(self):
-        output = {}
-        for key in dir(self):
-            prop = getattr(self, key)
-            if prop is not None:
-                if key in self.key_mapping:
-                    key = self.key_mapping[key]
-                output[key] = prop
-        return output
-
-    def get_index(self, index):
-        output = {}
-        for key in dir(self):
-            prop = getattr(self, key)
-            if prop is not None:
-                if key in self.key_mapping:
-                    key = self.key_mapping[key]
-                if isinstance(prop, torch.Tensor):
-                    output[key] = prop[index]
-                else:
-                    output[key] = prop
-        return output
+    key_mapping = {"bbox": "image_bbox"}
 
     def load_image(self):
         self.image = []
@@ -53,7 +27,7 @@ class ImageOutput:
             img = img.permute(2, 0, 1)
             self.image.append(img)
         self.image = torch.stack(self.image, dim=0)
-        if self.frame_mask_path is not None:
+        if self.frame_mask_path is not None and len(self.frame_mask_path) > 0:
             self.mask = []
             for mask_path in self.frame_mask_path:
                 mask = cv2.imread(mask_path)

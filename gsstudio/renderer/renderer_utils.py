@@ -20,14 +20,6 @@ class Camera(NamedTuple):
 
 
 # gaussian splatting functions
-def convert_gl2cv(C2W, intrinsic, height):
-    flip_yz = torch.eye(4, device=C2W.device)
-    # flip_yz[1, 1] = -1
-    flip_yz[2, 2] = -1
-    C2W = torch.matmul(C2W, flip_yz)
-    intrinsic[1, 1] *= -1
-    intrinsic[1, 2] = height - intrinsic[1, 2]
-    return C2W, intrinsic
 
 
 def get_projection_matrix_advanced(

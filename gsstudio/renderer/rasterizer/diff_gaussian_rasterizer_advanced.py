@@ -35,7 +35,7 @@ class DiffGaussian(Rasterizer, GaussianBatchRenderer):
         material: BaseMaterial,
         background: BaseBackground,
     ) -> None:
-        threestudio.info(
+        gsstudio.info(
             "[Note] Gaussian Splatting doesn't support material and background now."
         )
         super().configure(geometry, material, background)

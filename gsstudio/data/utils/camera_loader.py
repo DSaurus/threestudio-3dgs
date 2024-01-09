@@ -2,30 +2,31 @@ import json
 import os
 
 import torch
-from threestudio.renderer.renderer_utils import convert_gl2cv
-from threestudio.utils.typing import *
 from tqdm import tqdm
 
 import gsstudio
-
-from .camera_utils import CameraOutput, intrinsic2proj_mtx, matrix2rays
-from .data_utils import batch_merge_output
-from .image_utils import ImageOutput
+from gsstudio.data.utils.camera_utils import (
+    CameraOutput,
+    convert_gl2cv,
+    intrinsic2proj_mtx,
+    matrix2rays,
+)
+from gsstudio.data.utils.data_utils import batch_merge_output
+from gsstudio.data.utils.image_utils import ImageOutput
+from gsstudio.utils.typing import *
 
 
 class CameraLoader:
     def __init__(
         self,
-        camera_dict,
+        dataroot,
         max_nums=-1,
         interval=1,
         scale=1,
         offline_load=False,
         normalize=True,
     ):
-        camera_dict = json.load(
-            open(os.path.join(self.cfg.dataroot, "transforms.json"), "r")
-        )
+        camera_dict = json.load(open(os.path.join(dataroot, "transforms.json"), "r"))
         assert camera_dict["camera_model"] == "OPENCV"
 
         frames = camera_dict["frames"]
@@ -52,7 +53,9 @@ class CameraLoader:
                 frame["transform_matrix"], dtype=torch.float32
             )
             camera.c2w = extrinsic.unsqueeze(0)
-            camera.c2w, camera.intrinsic = convert_gl2cv(camera.c2w, camera.intrinsic)
+            camera.c2w, camera.intrinsic = convert_gl2cv(
+                camera.c2w, camera.intrinsic, camera.height
+            )
 
             (
                 camera.fovx,
@@ -79,10 +82,12 @@ class CameraLoader:
 
             # load image
             image = ImageOutput()
-            frame_path = os.path.join(self.cfg.dataroot, frame["file_path"])
-            image.frame_path = [frame_path]
+            frame_path = os.path.join(dataroot, frame["file_path"])
+            image.frame_image_path = [frame_path]
+            image.width = camera.width
+            image.height = camera.height
             if frame.__contains__("mask_path"):
-                mask_path = os.path.join(self.cfg.dataroot, frame["mask_path"])
+                mask_path = os.path.join(dataroot, frame["mask_path"])
                 image.mask_path = [mask_path]
             if frame.__contains__("bbox"):
                 image.bbox = torch.FloatTensor(frame["bbox"]).unsqueeze(0) / scale
