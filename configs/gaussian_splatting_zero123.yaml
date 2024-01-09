@@ -106,7 +106,7 @@ system:
   loggers:
     wandb:
       enable: false
-      project: "threestudio"
+      project: "gsstudio"
       name: None
 
   loss:
