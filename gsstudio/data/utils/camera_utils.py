@@ -13,9 +13,7 @@ from gsstudio.utils.typing import *
 
 
 def convert_gl2cv(C2W, intrinsic, height):
-    # print(C2W.shape)
     flip_yz = torch.eye(4, device=C2W.device).unsqueeze(0).repeat(C2W.shape[0], 1, 1)
-    # flip_yz[1, 1] = -1
     flip_yz[:, 2, 2] = -1
     C2W = torch.matmul(C2W, flip_yz)
     intrinsic[:, 1, 1] *= -1
@@ -80,8 +78,8 @@ def intrinsic2proj_mtx(intrinsic, height, width, **kwargs):
 
 
 class CameraOutput(DataOutput):
-    width: int
-    height: int
+    width: int = None
+    height: int = None
 
     elevation_deg: Float[Tensor, "B"] = None
     azimuth_deg: Float[Tensor, "B"] = None

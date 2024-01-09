@@ -10,9 +10,9 @@ from gsstudio.utils.typing import *
 class ImageOutput(DataOutput):
     frame_image_path: List[str] = []
     frame_mask_path: List[str] = []
-    bbox: Float[Tensor, "B 4"]
-    image: Float[Tensor, "B C H W"]
-    mask: Float[Tensor, "B H W"]
+    bbox: Float[Tensor, "B 4"] = None
+    image: Float[Tensor, "B C H W"] = None
+    mask: Float[Tensor, "B H W"] = None
     width: int = None
     height: int = None
 
