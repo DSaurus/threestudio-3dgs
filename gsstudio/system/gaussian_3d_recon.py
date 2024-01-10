@@ -142,6 +142,17 @@ class GaussianSplatting(GaussianBaseSystem):
                 ]
                 if "comp_normal" in out
                 else []
+            )
+            + (
+                [
+                    {
+                        "type": "rgb",
+                        "img": batch["image"][0].permute(1, 2, 0),
+                        "kwargs": {"data_format": "HWC", "data_range": (0, 1)},
+                    }
+                ]
+                if "image" in batch
+                else []
             ),
             name="validation_step",
             step=self.global_step,
@@ -170,6 +181,17 @@ class GaussianSplatting(GaussianBaseSystem):
                     }
                 ]
                 if "comp_normal" in out
+                else []
+            )
+            + (
+                [
+                    {
+                        "type": "rgb",
+                        "img": batch["image"][0].permute(1, 2, 0),
+                        "kwargs": {"data_format": "HWC", "data_range": (0, 1)},
+                    }
+                ]
+                if "image" in batch
                 else []
             ),
             name="test_step",

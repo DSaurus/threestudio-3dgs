@@ -217,8 +217,7 @@ class RandomCameraDataset(Dataset):
 
     def __getitem__(self, index):
         camera_out = self.camera_out.get_index(index)
-        camera_out["index"] = index
-        return {**camera_out, **self.light_out}
+        return {**camera_out.to_dict(), **self.light_out.to_dict(), "index": index}
 
     def collate(self, batch):
         batch = torch.utils.data.default_collate(batch)

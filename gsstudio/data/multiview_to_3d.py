@@ -43,7 +43,7 @@ def inter_pose(pose_0, pose_1, ratio):
 
 
 @dataclass
-class DynamicMultiviewsDataModuleConfig:
+class MultiviewsDataModuleConfig:
     dataroot: str = ""
     train_downsample_resolution: int = 4
     eval_downsample_resolution: int = 4
@@ -71,10 +71,10 @@ class DynamicMultiviewsDataModuleConfig:
     max_train_nums: int = -1
 
 
-class DynamicMultiviewIterableDataset(IterableDataset, Updateable):
+class MultiviewIterableDataset(IterableDataset, Updateable):
     def __init__(self, cfg: Any) -> None:
         super().__init__()
-        self.cfg: DynamicMultiviewsDataModuleConfig = cfg
+        self.cfg: MultiviewsDataModuleConfig = cfg
 
         assert self.cfg.batch_size == 1
         if self.cfg.edit:
@@ -114,10 +114,10 @@ class DynamicMultiviewIterableDataset(IterableDataset, Updateable):
         return output
 
 
-class DynamicMultiviewDataset(Dataset):
+class MultiviewDataset(Dataset):
     def __init__(self, cfg: Any, split: str) -> None:
         super().__init__()
-        self.cfg: DynamicMultiviewsDataModuleConfig = cfg
+        self.cfg: MultiviewsDataModuleConfig = cfg
 
         assert self.cfg.eval_batch_size == 1
         scale = self.cfg.eval_downsample_resolution
@@ -158,21 +158,21 @@ class DynamicMultiviewDataset(Dataset):
         return batch
 
 
-@gsstudio.register("dynamic-multiview-camera-sampler-datamodule")
-class DynamicMultiviewDataModule(pl.LightningDataModule):
-    cfg: DynamicMultiviewsDataModuleConfig
+@gsstudio.register("multiview-camera-sampler-datamodule")
+class MultiviewDataModule(pl.LightningDataModule):
+    cfg: MultiviewsDataModuleConfig
 
     def __init__(self, cfg: Optional[Union[dict, DictConfig]] = None) -> None:
         super().__init__()
-        self.cfg = parse_structured(DynamicMultiviewsDataModuleConfig, cfg)
+        self.cfg = parse_structured(MultiviewsDataModuleConfig, cfg)
 
     def setup(self, stage=None) -> None:
         if stage in [None, "fit"]:
-            self.train_dataset = DynamicMultiviewIterableDataset(self.cfg)
+            self.train_dataset = MultiviewIterableDataset(self.cfg)
         if stage in [None, "fit", "validate"]:
-            self.val_dataset = DynamicMultiviewDataset(self.cfg, "val")
+            self.val_dataset = MultiviewDataset(self.cfg, "val")
         if stage in [None, "test", "predict"]:
-            self.test_dataset = DynamicMultiviewDataset(self.cfg, "test")
+            self.test_dataset = MultiviewDataset(self.cfg, "test")
 
     def prepare_data(self):
         pass
