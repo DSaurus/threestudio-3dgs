@@ -14,12 +14,12 @@ def batch_merge_output(output_list):
                 prop_list.append(getattr(output, key))
             prop_list = torch.cat(prop_list, dim=0)
             setattr(merged_output, key, prop_list)
-        elif isinstance(prop, List):
+        elif isinstance(prop, list):
             prop_list = []
             for output in output_list:
                 prop_list = prop_list + (getattr(output, key))
             setattr(merged_output, key, prop_list)
-        elif type(prop) in [int, float, str]:
+        elif isinstance(prop, (int, float, str, bool)):
             setattr(merged_output, key, prop)
     return merged_output
 
@@ -37,9 +37,9 @@ class DataOutput:
         for key in dir(self):
             if key.startswith("__"):
                 continue
-            if not (type(getattr(self, key)) in [torch.Tensor, List, int, float, str]):
-                continue
             prop = getattr(self, key)
+            if not isinstance(prop, (torch.Tensor, list, int, float, str, bool)):
+                continue
             if prop is not None:
                 if key in self.key_mapping:
                     key = self.key_mapping[key]
@@ -47,22 +47,24 @@ class DataOutput:
         return output
 
     def get_index(self, index, is_batch=False, is_tensor=False):
-        output = {}
+        output = type(self)()
         for key in dir(self):
             if key.startswith("__"):
                 continue
-            if not (type(getattr(self, key)) in [torch.Tensor, List, int, float, str]):
-                continue
             prop = getattr(self, key)
-
+            if not isinstance(prop, (torch.Tensor, list, int, float, str, bool)):
+                continue
             if prop is not None:
                 if key in self.key_mapping:
                     key = self.key_mapping[key]
                 if isinstance(prop, torch.Tensor):
                     if is_batch:
-                        output[key] = prop[index : index + 1]
+                        setattr(output, key, prop[index : index + 1])
                     else:
-                        output[key] = prop[index]
+                        setattr(output, key, prop[index])
                 elif is_tensor == False:
-                    output[key] = prop
+                    if isinstance(prop, list):
+                        setattr(output, key, prop[index])
+                    else:
+                        setattr(output, key, prop)
         return output

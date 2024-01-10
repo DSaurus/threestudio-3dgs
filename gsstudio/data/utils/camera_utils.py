@@ -99,6 +99,7 @@ class CameraOutput(DataOutput):
 
     rays_o: Float[Tensor, "B H W 3"] = None
     rays_d: Float[Tensor, "B H W 3"] = None
+    rays_d_normalize: bool = True
 
     camera_time: Float[Tensor, "B"] = None
     camera_time_index: Int[Tensor, "B"] = None
@@ -107,3 +108,12 @@ class CameraOutput(DataOutput):
         "elevation_deg": "elevation",
         "azimuth_deg": "azimuth",
     }
+
+    def gen_rays(self):
+        self.rays_o, self.rays_d = matrix2rays(
+            self.c2w,
+            self.intrinsic,
+            self.height,
+            self.width,
+            normalize=self.rays_d_normalize,
+        )

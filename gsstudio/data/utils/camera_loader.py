@@ -38,7 +38,7 @@ class CameraLoader:
 
         for idx, frame in tqdm(enumerate(frames)):
             # load camera
-            camera = CameraOutput()
+            camera = CameraOutput(rays_d_normalize=normalize)
             camera.width = frame["w"] // scale
             camera.height = frame["h"] // scale
 
@@ -88,7 +88,7 @@ class CameraLoader:
             image.height = camera.height
             if frame.__contains__("mask_path"):
                 mask_path = os.path.join(dataroot, frame["mask_path"])
-                image.mask_path = [mask_path]
+                image.frame_image_path = [mask_path]
             if frame.__contains__("bbox"):
                 image.bbox = torch.FloatTensor(frame["bbox"]).unsqueeze(0) / scale
             if offline_load:

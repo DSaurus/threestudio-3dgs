@@ -290,22 +290,6 @@ class SingleImageDataset(Dataset, SingleImageDataBase):
 
     def __getitem__(self, index):
         return self.random_pose_generator[index]
-        # if index == 0:
-        #     return {
-        #         'rays_o': self.rays_o[0],
-        #         'rays_d': self.rays_d[0],
-        #         'mvp_mtx': self.mvp_mtx[0],
-        #         'camera_positions': self.camera_position[0],
-        #         'light_positions': self.light_position[0],
-        #         'elevation': self.elevation_deg[0],
-        #         'azimuth': self.azimuth_deg[0],
-        #         'camera_distances': self.camera_distance[0],
-        #         'rgb': self.rgb[0],
-        #         'depth': self.depth[0],
-        #         'mask': self.mask[0]
-        #     }
-        # else:
-        #     return self.random_pose_generator[index - 1]
 
 
 @register("single-image-datamodule")

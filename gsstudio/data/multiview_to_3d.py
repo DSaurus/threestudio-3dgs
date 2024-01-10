@@ -91,6 +91,7 @@ class DynamicMultiviewIterableDataset(IterableDataset, Updateable):
         self.camera_loader.set_layout(self.cfg.camera_layout, self.cfg.camera_distance)
         self.cameras = self.camera_loader.cameras
         self.images = self.camera_loader.images
+        print(self.images.frame_image_path)
 
     def __iter__(self):
         while True:
@@ -101,75 +102,16 @@ class DynamicMultiviewIterableDataset(IterableDataset, Updateable):
 
     def collate(self, batch):
         index = torch.randint(0, self.cameras.c2w.shape[0], (1,)).item()
+        camera = self.cameras.get_index(index, is_batch=True)
+        image = self.images.get_index(index, is_batch=True)
+        if self.cfg.online_load_image:
+            camera.gen_rays()
+            image.load_image()
         output = {
-            **self.cameras.get_index(index, is_batch=True),
-            **self.images.get_index(index, is_batch=True),
+            **camera.to_dict(),
+            **image.to_dict(),
         }
         return output
-
-        # t0_index = torch.randint(0, len(self.frames_t0), (1,)).item()
-        # index = self.frames_t0[t0_index]
-        if not self.cfg.online_load_image:
-            frame_img = self.frames_img[index : index + 1]
-            rays_o = self.rays_o[index : index + 1]
-            rays_d = self.rays_d[index : index + 1]
-            if len(self.frames_mask_path) > 0:
-                mask_img = self.frames_mask[index : index + 1]
-            else:
-                mask_img = torch.ones_like(frame_img)
-        else:
-            img = cv2.imread(self.frames_file_path[index])[:, :, ::-1]
-            img = cv2.resize(img, (self.frame_w, self.frame_h))
-            if len(self.frames_mask_path) > 0:
-                mask = cv2.imread(self.frames_mask_path[index])
-                mask = cv2.resize(mask, (self.frame_w, self.frame_h))
-                mask_img: Float[Tensor, "H W 3"] = (
-                    torch.FloatTensor(mask).unsqueeze(0) / 255
-                )
-
-            frame_img: Float[Tensor, "H W 3"] = (
-                torch.FloatTensor(img).unsqueeze(0) / 255
-            )
-            intrinsic = self.frames_intrinsic[index]
-            frame_direction = get_ray_directions(
-                self.frame_h,
-                self.frame_w,
-                (intrinsic[0, 0], intrinsic[1, 1]),
-                (intrinsic[0, 2], intrinsic[1, 2]),
-                use_pixel_centers=False,
-            ).unsqueeze(0)
-            rays_o, rays_d = get_rays(
-                frame_direction, self.frames_c2w[index : index + 1], keepdim=True
-            )
-
-        return_dict = {
-            "index": index,
-            "rays_o": rays_o,
-            "rays_d": rays_d,
-            "mvp_mtx": self.mvp_mtx[index : index + 1],
-            "proj": self.frames_proj[index : index + 1],
-            "c2w": self.frames_c2w[index : index + 1],
-            "camera_positions": self.frames_position[index : index + 1],
-            "light_positions": self.light_positions[index : index + 1],
-            "gt_rgb": frame_img,
-            "height": self.frame_h,
-            "width": self.frame_w,
-            "moment": self.frames_moment[index : index + 1],
-            "file_path": self.frames_file_path[index],
-        }
-        if len(self.frames_mask_path) > 0:
-            return_dict.update(
-                {
-                    "frame_mask": mask_img,
-                }
-            )
-        if len(self.frames_bbox) > 0:
-            return_dict.update(
-                {
-                    "frame_bbox": self.frames_bbox[index : index + 1],
-                }
-            )
-        return return_dict
 
 
 class DynamicMultiviewDataset(Dataset):
@@ -184,21 +126,24 @@ class DynamicMultiviewDataset(Dataset):
             self.cfg.dataroot,
             interval=self.cfg.eval_data_interval,
             scale=scale,
-            offline_load=True,
+            offline_load=not self.cfg.online_load_image,
         )
         self.camera_loader.set_layout(self.cfg.camera_layout, self.cfg.camera_distance)
         self.cameras = self.camera_loader.cameras
         self.images = self.camera_loader.images
-        # print(self.cameras.c2w.shape)
-        # exit(0)
 
     def __len__(self):
         return self.cameras.c2w.shape[0]
 
     def __getitem__(self, index):
+        camera = self.cameras.get_index(index, is_batch=True)
+        image = self.images.get_index(index, is_batch=True)
+        if self.cfg.online_load_image:
+            camera.gen_rays()
+            image.load_image()
         output = {
-            **self.cameras.get_index(index, is_tensor=True),
-            **self.images.get_index(index, is_tensor=True),
+            **camera.get_index(0, is_batch=False).to_dict(),
+            **image.get_index(0, is_batch=False).to_dict(),
             "index": index,
         }
         return output

@@ -20,16 +20,12 @@ class Camera(NamedTuple):
 
 
 # gaussian splatting functions
-
-
-def get_projection_matrix_advanced(
-    znear, zfar, fovX, fovY, cx=0.0, cy=0.0, device="cuda"
-):
+def get_projection_matrix_advanced(znear, zfar, fovX, fovY, cx=0.0, cy=0.0):
     tanHalfFovY = torch.tan((fovY / 2))
     tanHalfFovX = torch.tan((fovX / 2))
     B = fovX.shape[0]
 
-    P = torch.zeros(B, 4, 4, device=device)
+    P = torch.zeros(B, 4, 4)
 
     P[:, 0, 0] = 1.0 / tanHalfFovX
     P[:, 1, 1] = 1.0 / tanHalfFovY
@@ -54,14 +50,12 @@ def get_cam_info_gaussian(c2w, fovx, fovy, znear, zfar, cx=0, cy=0):
     assert c2w.shape[0] == 1
     world_view_transform = torch.inverse(c2w)[0]
 
-    world_view_transform = world_view_transform.transpose(0, 1).cuda().float()
+    world_view_transform = world_view_transform.transpose(0, 1).float()
     projection_matrix = (
         get_projection_matrix_advanced(
             znear=znear, zfar=zfar, fovX=fovx, fovY=fovy, cx=cx, cy=cy
-        )[0]
-        .transpose(0, 1)
-        .cuda()
-    )
+        )[0].transpose(0, 1)
+    ).to(c2w.device)
     full_proj_transform = (
         world_view_transform.unsqueeze(0).bmm(projection_matrix.unsqueeze(0))
     ).squeeze(0)
@@ -71,8 +65,6 @@ def get_cam_info_gaussian(c2w, fovx, fovy, znear, zfar, cx=0, cy=0):
 
 
 # NeRF functions
-
-
 def get_ray_directions(
     H: int,
     W: int,
