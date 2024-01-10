@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torch.cuda.amp import autocast
 
 import gsstudio
+from gsstudio.loss.gaussian_loss import gaussian_loss
 from gsstudio.loss.general_loss import tv_loss
 from gsstudio.representation.base.gaussian import BasicPointCloud
 from gsstudio.system.gaussian_base import GaussianBaseSystem
@@ -43,7 +44,7 @@ class GaussianSplatting(GaussianBaseSystem):
         viewspace_point_tensor = out["viewspace_points"]
 
         guidance_out = {
-            "loss_rgb": F.l1_loss(guidance_inp, batch["image"].permute(0, 2, 3, 1))
+            "loss_rgb": gaussian_loss(guidance_inp.permute(0, 3, 1, 2), batch["image"])
         }
         loss_rgb = 0.0
         loss = 0.0
@@ -63,6 +64,9 @@ class GaussianSplatting(GaussianBaseSystem):
                 loss_rgb += value * self.C(
                     self.cfg.loss[name.replace("loss_", "lambda_")]
                 )
+        if self.cfg.loss["lambda_mask"] > 0.0:
+            loss_mask = F.l1_loss(out["comp_mask"], batch["mask"].permute(0, 2, 3, 1))
+            loss += self.C(self.cfg.loss["lambda_mask"]) * loss_mask
 
         xyz_mean = None
         if self.cfg.loss["lambda_position"] > 0.0:

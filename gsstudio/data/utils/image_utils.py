@@ -19,13 +19,13 @@ class ImageOutput(DataOutput):
     key_mapping = {"bbox": "image_bbox"}
 
     def load_image(self):
-        # frame_image_path List or List[str]
-        # frame_mask_path List or List[str]
+        # frame_image_path str or List[str]
+        # frame_mask_path str or List[str]
         if isinstance(self.frame_image_path, str):
             frame_image_path = [self.frame_image_path]
         else:
             frame_image_path = self.frame_image_path
-        if frame_image_path is not None and len(self.frame_image_path) > 0:
+        if frame_image_path is not None and len(frame_image_path) > 0:
             self.image = []
             for frame_path in frame_image_path:
                 img = cv2.imread(frame_path)[:, :, ::-1].copy()
@@ -39,13 +39,13 @@ class ImageOutput(DataOutput):
             frame_mask_path = [self.frame_mask_path]
         else:
             frame_mask_path = self.frame_mask_path
-        if frame_mask_path is not None and len(self.frame_mask_path) > 0:
+        if frame_mask_path is not None and len(frame_mask_path) > 0:
             self.mask = []
-            for mask_path in self.frame_mask_path:
+            for mask_path in frame_mask_path:
                 mask = cv2.imread(mask_path)
                 mask = cv2.resize(mask, (self.width, self.height))
                 mask: Float[Tensor, "H W 3"] = torch.FloatTensor(mask) / 255
-                mask = mask.permute(2, 0, 1)
+                mask = mask.permute(2, 0, 1)[:1]
                 self.mask.append(mask)
             self.mask = torch.stack(self.mask, dim=0)
 

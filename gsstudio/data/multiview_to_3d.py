@@ -69,6 +69,7 @@ class MultiviewsDataModuleConfig:
     close_interval: bool = False
 
     max_train_nums: int = -1
+    max_eval_nums: int = -1
 
 
 class MultiviewIterableDataset(IterableDataset, Updateable):
@@ -125,6 +126,7 @@ class MultiviewDataset(Dataset):
         self.camera_loader = CameraLoader(
             self.cfg.dataroot,
             interval=self.cfg.eval_data_interval,
+            max_nums=self.cfg.max_eval_nums,
             scale=scale,
             offline_load=not self.cfg.online_load_image,
         )

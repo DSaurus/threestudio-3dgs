@@ -69,6 +69,7 @@ class DynamicMultiviewsDataModuleConfig:
     close_interval: bool = False
 
     max_train_nums: int = -1
+    max_eval_nums: int = -1
 
 
 class DynamicMultiviewIterableDataset(IterableDataset, Updateable):
@@ -91,7 +92,6 @@ class DynamicMultiviewIterableDataset(IterableDataset, Updateable):
         self.camera_loader.set_layout(self.cfg.camera_layout, self.cfg.camera_distance)
         self.cameras = self.camera_loader.cameras
         self.images = self.camera_loader.images
-        print(self.images.frame_image_path)
 
     def __iter__(self):
         while True:
@@ -125,6 +125,7 @@ class DynamicMultiviewDataset(Dataset):
         self.camera_loader = CameraLoader(
             self.cfg.dataroot,
             interval=self.cfg.eval_data_interval,
+            max_nums=self.cfg.max_eval_nums,
             scale=scale,
             offline_load=not self.cfg.online_load_image,
         )

@@ -1,1 +1,1 @@
-from . import general_loss, perceptual, sampler
+from . import gaussian_loss, general_loss, perceptual, sampler
