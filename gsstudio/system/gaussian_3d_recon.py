@@ -35,14 +35,10 @@ class GaussianSplatting(GaussianBaseSystem):
 
     def training_step(self, batch, batch_idx):
         opt = self.optimizers()
+
         out = self(batch)
 
-        visibility_filter = out["visibility_filter"]
-        radii = out["radii"]
         guidance_inp = out["comp_rgb"]
-        # import pdb; pdb.set_trace()
-        viewspace_point_tensor = out["viewspace_points"]
-
         guidance_out = {
             "loss_rgb": gaussian_loss(guidance_inp.permute(0, 3, 1, 2), batch["image"])
         }
@@ -110,13 +106,7 @@ class GaussianSplatting(GaussianBaseSystem):
             self.log(f"train_params/{name}", self.C(value))
 
         loss_rgb.backward(retain_graph=True)
-        iteration = self.global_step
-        self.geometry.update_states(
-            iteration,
-            visibility_filter,
-            radii,
-            viewspace_point_tensor,
-        )
+        self.gaussian_update(out)
         if loss > 0:
             loss.backward()
         opt.step()

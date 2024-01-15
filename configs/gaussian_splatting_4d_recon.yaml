@@ -1,5 +1,5 @@
 name: "gs-4d-reconstruction"
-tag: "${rmspace:3drecon,_}"
+tag: "${rmspace:4drecon,_}"
 exp_root_dir: "outputs"
 seed: 0
 

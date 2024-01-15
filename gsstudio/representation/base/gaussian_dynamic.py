@@ -14,17 +14,17 @@ from plyfile import PlyData, PlyElement
 from simple_knn._C import distCUDA2
 
 import gsstudio
+from gsstudio.representation.base.dynamic import DynamicBaseModel
+from gsstudio.representation.base.gaussian import GaussianBaseModel
+from gsstudio.representation.base.utils import BasicPointCloud
 from gsstudio.utils.config import C
 from gsstudio.utils.typing import *
 
-from .gaussian import GaussianBaseModel
-
 
 @gsstudio.register("gaussian-splatting-dynamic")
-class GaussianDynamicModel(GaussianBaseModel):
+class GaussianDynamicModel(GaussianBaseModel, DynamicBaseModel):
     @dataclass
     class Config(GaussianBaseModel.Config):
-        flow: bool = True
         num_frames: int = 10
         delta_pos_lr: Any = 0.001
         delta_rot_lr: Any = 0.0001
@@ -36,6 +36,20 @@ class GaussianDynamicModel(GaussianBaseModel):
         self._delta_xyz = torch.empty(0)
         self._delta_rot = torch.empty(0)
         self.time_index = 0
+
+    def create_from_pcd(self, pcd: BasicPointCloud, spatial_lr_scale: float):
+        super().create_from_pcd(pcd, spatial_lr_scale)
+        self._delta_xyz = nn.Parameter(
+            torch.zeros(self.cfg.num_frames, self._xyz.shape[0], 3).requires_grad_(True)
+        )
+        self._delta_rot = nn.Parameter(
+            torch.zeros(self.cfg.num_frames, self._xyz.shape[0], 3).requires_grad_(True)
+        )
+
+    def to(self, device="cpu"):
+        super().to(device)
+        self._delta_xyz = self._delta_xyz.to(device)
+        self._delta_rot = self._delta_rot.to(device)
 
     def training_setup(self):
         super().training_setup()

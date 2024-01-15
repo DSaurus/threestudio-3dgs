@@ -4,11 +4,7 @@ import torch
 import torch.nn.functional as F
 
 from gsstudio.data.utils.data_utils import DataOutput
-from gsstudio.renderer.renderer_utils import (
-    get_projection_matrix_advanced,
-    get_ray_directions,
-    get_rays,
-)
+from gsstudio.data.utils.ray_utils import get_ray_directions, get_rays
 from gsstudio.utils.typing import *
 
 
@@ -22,7 +18,15 @@ def convert_gl2cv(C2W, intrinsic, height):
 
 
 def samples2matrix(
-    camera_positions, camera_centers, fovx, fovy, width, height, **kwargs
+    camera_positions,
+    camera_centers,
+    fovx,
+    fovy,
+    width,
+    height,
+    z_near=0.01,
+    z_far=100,
+    **kwargs
 ):
     batch_size = camera_positions.shape[0]
     up: Float[Tensor, "B 3"] = torch.as_tensor([0, 0, 1], dtype=torch.float32)[
@@ -48,7 +52,7 @@ def samples2matrix(
     intrinsic[:, 1, 2] = height / 2
     intrinsic[:, 2, 2] = 1.0
 
-    proj_mtx = get_projection_matrix_advanced(0.01, 100, fovx, fovy)
+    proj_mtx = get_projection_matrix_zplus(z_near, z_far, fovx, fovy)
     return c2w, intrinsic, proj_mtx
 
 
@@ -63,7 +67,7 @@ def matrix2rays(c2w, intrinsic, height, width, normalize=True, **kwargs):
     return rays_o, rays_d
 
 
-def intrinsic2proj_mtx(intrinsic, height, width, **kwargs):
+def intrinsic2proj_mtx(intrinsic, height, width, z_near=0.01, z_far=100, **kwargs):
     fovx = 2 * torch.atan(width / (2 * intrinsic[:, 0, 0]))
     fovy = 2 * torch.atan(height / (2 * intrinsic[:, 1, 1]))
     cx = 2 * (intrinsic[:, 0, 2] / width) - 1
@@ -73,8 +77,25 @@ def intrinsic2proj_mtx(intrinsic, height, width, **kwargs):
         fovy,
         cx,
         cy,
-        get_projection_matrix_advanced(0.01, 100, fovx, fovy, cx, cy),
+        get_projection_matrix_zplus(z_near, z_far, fovx, fovy, cx, cy),
     )
+
+
+def get_projection_matrix_zplus(znear, zfar, fovX, fovY, cx=0.0, cy=0.0):
+    tanHalfFovY = torch.tan((fovY / 2))
+    tanHalfFovX = torch.tan((fovX / 2))
+    B = fovX.shape[0]
+
+    P = torch.zeros(B, 4, 4)
+
+    P[:, 0, 0] = 1.0 / tanHalfFovX
+    P[:, 1, 1] = 1.0 / tanHalfFovY
+    P[:, 0, 2] = cx
+    P[:, 1, 2] = cy
+    P[:, 3, 2] = 1
+    P[:, 2, 2] = (zfar - znear) / (zfar + znear)
+    P[:, 2, 3] = -2 * (zfar * znear) / (zfar + znear)
+    return P
 
 
 class CameraOutput(DataOutput):
@@ -101,8 +122,8 @@ class CameraOutput(DataOutput):
     rays_d: Float[Tensor, "B H W 3"] = None
     rays_d_normalize: bool = True
 
-    camera_time: Float[Tensor, "B"] = None
-    camera_time_index: Int[Tensor, "B"] = None
+    moment: Float[Tensor, "B"] = None
+    time_index: Int[Tensor, "B"] = None
 
     key_mapping = {
         "elevation_deg": "elevation",

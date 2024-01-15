@@ -2,10 +2,16 @@ import torch
 from torch.cuda.amp import autocast
 
 from gsstudio.renderer.renderer_utils import Camera, get_cam_info_gaussian
+from gsstudio.representation.base.dynamic import DynamicBaseModel
 
 
 class GaussianBatchRenderer:
     def batch_forward(self, batch):
+        if isinstance(self.geometry, DynamicBaseModel):
+            moment = batch["moment"] if "moment" in batch else None
+            time_index = batch["time_index"] if "time_index" in batch else None
+            self.geometry.set_time(moment=moment, time_index=time_index)
+
         bs = batch["c2w"].shape[0]
         renders = []
         viewspace_points = []

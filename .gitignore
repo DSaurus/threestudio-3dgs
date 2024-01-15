@@ -196,3 +196,5 @@ diff-gaussian-rasterization/
 simple-knn/
 dependency/
 temp/
+gsstudio/web/GaussianSplats3D
+gsstudio/web/splat

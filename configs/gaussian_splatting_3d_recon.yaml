@@ -72,6 +72,7 @@ system:
 
   loss:
     lambda_rgb: 1.0
+    lambda_mask: 0.0
     lambda_position: 0.0
     lambda_opacity: 0.000
     lambda_scales: 0.000

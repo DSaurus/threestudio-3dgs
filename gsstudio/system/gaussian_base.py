@@ -57,3 +57,16 @@ class GaussianBaseSystem(BaseLift3DSystem):
         self.geometry.create_from_pcd(pcd, 10)
         self.geometry.training_setup()
         super().on_load_checkpoint(ckpt_dict)
+
+    def gaussian_update(self, out):
+        visibility_filter = out["visibility_filter"]
+        radii = out["radii"]
+        viewspace_point_tensor = out["viewspace_points"]
+
+        iteration = self.global_step
+        self.geometry.update_states(
+            iteration,
+            visibility_filter,
+            radii,
+            viewspace_point_tensor,
+        )

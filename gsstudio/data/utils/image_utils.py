@@ -48,18 +48,3 @@ class ImageOutput(DataOutput):
                 mask = mask.permute(2, 0, 1)[:1]
                 self.mask.append(mask)
             self.mask = torch.stack(self.mask, dim=0)
-
-    # def load_single_image(self, index):
-    #     frame_path = self.frame_image_path[index]
-    #     img = cv2.imread(frame_path)[:, :, ::-1].copy()
-    #     img = cv2.resize(img, (self.width, self.height))
-    #     img: Float[Tensor, "H W 3"] = torch.FloatTensor(img) / 255
-    #     img = img.permute(2, 0, 1).unsqueeze(0)
-    #     self.image = img
-    #     if self.frame_mask_path is not None:
-    #         mask_path = self.frame_mask_path[index]
-    #         mask = cv2.imread(mask_path)
-    #         mask = cv2.resize(mask, (self.width, self.height))
-    #         mask: Float[Tensor, "H W 3"] = torch.FloatTensor(mask) / 255
-    #         mask = mask.permute(2, 0, 1).unsqueeze(0)
-    #         self.mask = mask

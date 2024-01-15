@@ -28,6 +28,10 @@ class CameraLoader:
     ):
         camera_dict = json.load(open(os.path.join(dataroot, "transforms.json"), "r"))
         assert camera_dict["camera_model"] == "OPENCV"
+        if "num_frames" in camera_dict:
+            num_frames = camera_dict["num_frames"]
+        else:
+            num_frames = 1
 
         frames = camera_dict["frames"]
         camera_list = []
@@ -73,12 +77,19 @@ class CameraLoader:
                     normalize=normalize,
                 )
 
+            # time
             moment: Float[Tensor, "1"] = torch.zeros(1)
             if frame.__contains__("moment"):
                 moment[0] = frame["moment"]
             else:
                 moment[0] = 0
-            camera.camera_time = moment
+            camera.moment = moment
+            frame_index: Int[Tensor, "1"] = torch.zeros(1, dtype=torch.int32)
+            if frame.__contains__("frame_index"):
+                frame_index[0] = frame["frame_index"]
+            else:
+                frame_index[0] = moment[0].item() * num_frames
+            camera.time_index = frame_index
 
             # load image
             image = ImageOutput()
