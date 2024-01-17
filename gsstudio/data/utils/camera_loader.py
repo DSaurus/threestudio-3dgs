@@ -7,7 +7,7 @@ from tqdm import tqdm
 import gsstudio
 from gsstudio.data.utils.camera_utils import (
     CameraOutput,
-    convert_gl2cv,
+    convert_nerf2gl,
     intrinsic2proj_mtx,
     matrix2rays,
 )
@@ -57,7 +57,7 @@ class CameraLoader:
                 frame["transform_matrix"], dtype=torch.float32
             )
             camera.c2w = extrinsic.unsqueeze(0)
-            camera.c2w, camera.intrinsic = convert_gl2cv(
+            camera.c2w, camera.intrinsic = convert_nerf2gl(
                 camera.c2w, camera.intrinsic, camera.height
             )
 
@@ -122,7 +122,7 @@ class CameraLoader:
                 self.cameras.c2w[:, :3, 3], dim=0
             ).unsqueeze(0)
             z_vector = torch.zeros(self.cameras.c2w.shape[0], 3, 1)
-            z_vector[:, 2, :] = 1
+            z_vector[:, 2, :] = -1
             rot_z_vector = self.cameras.c2w[:, :3, :3] @ z_vector
             rot_z_vector = torch.mean(rot_z_vector, dim=0).unsqueeze(0)
             self.cameras.c2w[:, :3, 3] -= rot_z_vector[:, :, 0] * camera_distance

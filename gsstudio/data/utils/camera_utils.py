@@ -8,12 +8,23 @@ from gsstudio.data.utils.ray_utils import get_ray_directions, get_rays
 from gsstudio.utils.typing import *
 
 
-def convert_gl2cv(C2W, intrinsic, height):
+def convert_nerf2gl(C2W, intrinsic, height):
+    # GL, Gaussian (Original NeRF): depth -> -z, image origin at top-left -> x+ right, y+ down
+    # CV: depth -> +z, image origin at top-left -> x+ right, y+ down
+    # NeRF: depth -> +z, image origin at top-left -> x+ right, y+ up
     flip_yz = torch.eye(4, device=C2W.device).unsqueeze(0).repeat(C2W.shape[0], 1, 1)
-    flip_yz[:, 2, 2] = -1
+    # flip_yz[:, 2, 2] = -1
+    flip_yz[:, 1, 1] = -1
     C2W = torch.matmul(C2W, flip_yz)
-    intrinsic[:, 1, 1] *= -1
-    intrinsic[:, 1, 2] = height - intrinsic[:, 1, 2]
+
+    rot_z = torch.eye(4, device=C2W.device).unsqueeze(0).repeat(C2W.shape[0], 1, 1)
+    rot_z[:, 1, 1] = -1
+    rot_z[:, 0, 0] = -1
+    W2C = torch.inverse(C2W)
+    W2C = torch.matmul(W2C, rot_z)
+    C2W = torch.inverse(W2C)
+    # intrinsic[:, 1, 1] *= -1
+    # intrinsic[:, 1, 2] = height - intrinsic[:, 1, 2]
     return C2W, intrinsic
 
 
@@ -29,7 +40,7 @@ def samples2matrix(
     **kwargs
 ):
     batch_size = camera_positions.shape[0]
-    up: Float[Tensor, "B 3"] = torch.as_tensor([0, 0, 1], dtype=torch.float32)[
+    up: Float[Tensor, "B 3"] = torch.as_tensor([0, 1, 0], dtype=torch.float32)[
         None, :
     ].repeat(batch_size, 1)
     lookat: Float[Tensor, "B 3"] = F.normalize(
@@ -38,7 +49,7 @@ def samples2matrix(
     right: Float[Tensor, "B 3"] = F.normalize(torch.cross(lookat, up), dim=-1)
     up = F.normalize(torch.cross(right, lookat), dim=-1)
     c2w3x4: Float[Tensor, "B 3 4"] = torch.cat(
-        [torch.stack([right, -up, lookat], dim=-1), camera_positions[:, :, None]],
+        [torch.stack([right, up, -lookat], dim=-1), camera_positions[:, :, None]],
         dim=-1,
     )
     c2w: Float[Tensor, "B 4 4"] = torch.cat(
@@ -82,6 +93,7 @@ def intrinsic2proj_mtx(intrinsic, height, width, z_near=0.01, z_far=100, **kwarg
 
 
 def get_projection_matrix_zplus(znear, zfar, fovX, fovY, cx=0.0, cy=0.0):
+    # CV intrinsic to OpenGL intrinsic (Image Coordinate Transform)
     tanHalfFovY = torch.tan((fovY / 2))
     tanHalfFovX = torch.tan((fovX / 2))
     B = fovX.shape[0]
@@ -92,9 +104,13 @@ def get_projection_matrix_zplus(znear, zfar, fovX, fovY, cx=0.0, cy=0.0):
     P[:, 1, 1] = 1.0 / tanHalfFovY
     P[:, 0, 2] = cx
     P[:, 1, 2] = cy
-    P[:, 3, 2] = 1
-    P[:, 2, 2] = (zfar - znear) / (zfar + znear)
-    P[:, 2, 3] = -2 * (zfar * znear) / (zfar + znear)
+    # P[:, 3, 2] = 1
+    # P[:, 2, 2] = (zfar - znear) / (zfar + znear)
+    # P[:, 2, 3] = -2 * (zfar * znear) / (zfar + znear)
+
+    P[:, 3, 2] = -1
+    P[:, 2, 2] = -(zfar + znear) / (zfar - znear)
+    P[:, 2, 3] = -2 * (zfar * znear) / (zfar - znear)
     return P
 
 

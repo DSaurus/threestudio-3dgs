@@ -47,7 +47,7 @@ class GaussianIO:
             l.append("rot_{}".format(i))
         return l
 
-    def save_ply(self, path):
+    def save_ply(self, path, min_num=33000):
         xyz = self._xyz.detach().cpu().numpy()
         normals = np.zeros_like(xyz)
         f_dc = (
@@ -74,10 +74,20 @@ class GaussianIO:
             (attribute, "f4") for attribute in self.construct_list_of_attributes()
         ]
 
-        elements = np.empty(xyz.shape[0], dtype=dtype_full)
+        elements = np.empty(max(min_num, xyz.shape[0]), dtype=dtype_full)
         attributes = np.concatenate(
             (xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1
         )
+        if attributes.shape[0] < min_num:
+            add_attriutes = np.zeros(
+                (min_num - attributes.shape[0], attributes.shape[1])
+            )
+            add_attriutes[:, :] = attributes[:1, :]
+            attributes = np.concatenate(
+                (attributes, add_attriutes),
+                axis=0,
+            )
+
         elements[:] = list(map(tuple, attributes))
         el = PlyElement.describe(elements, "vertex")
         PlyData([el]).write(path)

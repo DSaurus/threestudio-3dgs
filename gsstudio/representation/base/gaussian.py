@@ -407,8 +407,13 @@ class GaussianBaseModel(BaseGeometry, GaussianIO):
         self.color_clip = C(self.cfg.color_clip, 0, iteration)
 
     def reset_opacity(self):
-        # opacities_new = inverse_sigmoid(torch.min(self.get_opacity, torch.ones_like(self.get_opacity)*0.01))
-        opacities_new = inverse_sigmoid(self.get_opacity * 0.9)
+        opacities_new = inverse_sigmoid(
+            torch.min(
+                self.get_opacity,
+                torch.ones_like(self.get_opacity) * self.cfg.min_opac_prune * 2,
+            )
+        )
+        # opacities_new = inverse_sigmoid(self.get_opacity * 0.9)
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
 

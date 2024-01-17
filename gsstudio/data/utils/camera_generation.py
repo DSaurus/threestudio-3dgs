@@ -110,14 +110,14 @@ class CameraSampler:
             torch.as_tensor(self.world_center).reshape(1, 3).repeat(self.batch_size, 1)
         )
         # convert spherical coordinates to cartesian coordinates
-        # right hand coordinate system, x back, y right, z up
+        # right hand coordinate system, x back, y down, z right
         # elevation in (-90, 90), azimuth from +x to +y in (-180, 180)
         camera_positions: Float[Tensor, "B 3"] = (
             torch.stack(
                 [
                     camera_distances * torch.cos(elevation) * torch.cos(azimuth),
+                    -camera_distances * torch.sin(elevation),
                     camera_distances * torch.cos(elevation) * torch.sin(azimuth),
-                    camera_distances * torch.sin(elevation),
                 ],
                 dim=-1,
             )
@@ -126,10 +126,6 @@ class CameraSampler:
 
         # default scene center at origin
         center: Float[Tensor, "B 3"] = torch.zeros_like(camera_positions) + world_center
-        # default camera up direction as +z
-        up: Float[Tensor, "B 3"] = torch.as_tensor([0, 0, 1], dtype=torch.float32)[
-            None, :
-        ].repeat(self.batch_size, 1)
 
         # sample camera perturbations from a uniform distribution [-camera_perturb, camera_perturb]
         camera_perturb: Float[Tensor, "B 3"] = (
@@ -142,11 +138,6 @@ class CameraSampler:
             torch.randn(self.batch_size, 3) * self.center_perturb
         )
         center = center + center_perturb
-        # sample up perturbations from a normal distribution with mean 0 and std up_perturb
-        up_perturb: Float[Tensor, "B 3"] = (
-            torch.randn(self.batch_size, 3) * self.up_perturb
-        )
-        up = up + up_perturb
 
         if fovy is None:
             # sample fovs from a uniform distribution bounded by fov_range

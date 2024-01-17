@@ -151,6 +151,9 @@ class GaussianSplatting(GaussianBaseSystem):
             name="validation_step",
             step=self.global_step,
         )
+        if batch["index"][0] == 0:
+            save_path = self.get_save_path("point_cloud.ply")
+            self.geometry.save_ply(save_path)
 
     def on_validation_epoch_end(self):
         pass
