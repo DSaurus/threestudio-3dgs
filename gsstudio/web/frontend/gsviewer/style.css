@@ -144,7 +144,7 @@ progress::-moz-progress-bar {
     background-color: rgba(0, 0, 0, 0.5);
 }
 
-.modal-content {
+.custom-modal-content {
     background-color: #222222;
     margin: 15% auto;
     padding: 16px;

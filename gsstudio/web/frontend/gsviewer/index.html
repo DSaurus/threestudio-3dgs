@@ -28,7 +28,7 @@
         </button>
 
         <div id="upload-modal" class="modal">
-            <div class="modal-content">
+            <div class="custom-modal-content">
                 <span id="upload-modal-close" class="close">&times;</span>
                 <p>Import Splat</p>
                 <hr class="divider" />
@@ -49,6 +49,10 @@
                 <div class="modal-section">
                     <p id="upload-error"></p>
                 </div>
+                <div class="modal-section">
+                    <p>Or click on the models</p></div>
+                <div id="root"></div>
+                <!-- <script type="module" src="/src/overview/main.tsx"></script> -->
             </div>
         </div>
 
@@ -144,6 +148,6 @@
         </div>
 
         <canvas id="canvas"> </canvas>
-        <script type="module" src="/src/main.ts"></script>
+        <script type="module" src="/src/gsviewer/main.tsx"></script>
     </body>
 </html>

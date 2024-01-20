@@ -10,11 +10,24 @@
         "start": "serve dist"
     },
     "devDependencies": {
+        "@types/react": "^18.2.47",
+        "@types/react-dom": "^18.2.18",
+        "@typescript-eslint/eslint-plugin": "^6.18.1",
+        "@typescript-eslint/parser": "^6.18.1",
+        "@vitejs/plugin-react": "^4.2.1",
+        "eslint": "^8.56.0",
+        "eslint-plugin-react-hooks": "^4.6.0",
+        "eslint-plugin-react-refresh": "^0.4.5",
         "serve": "^14.2.1",
         "typescript": "^5.2.2",
         "vite": "^5.0.0"
     },
     "dependencies": {
-        "gsplat": "^1.0.0"
+        "bootstrap": "^5.3.2",
+        "gsplat": "^1.0.0",
+        "react": "^18.2.0",
+        "react-bootstrap": "^2.10.0",
+        "react-dom": "^18.2.0",
+        "react-router-dom": "^6.21.2"
     }
 }
