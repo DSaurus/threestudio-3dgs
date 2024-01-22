@@ -11,7 +11,7 @@ Gaussian Splatting Studio: A unified framwork for 3D content creation. If you wa
 
 ## Advanced Gaussian Splatting Installation (Recommend)
 ```
-git clone https://github.com/DSaurus/threestudio-3dgs.git
+git clone --branch development https://github.com/DSaurus/threestudio-3dgs.git
 mkdir dependency
 cd dependency
 git clone --recursive https://github.com/ashawkey/diff-gaussian-rasterization
