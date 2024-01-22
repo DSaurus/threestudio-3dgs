@@ -15,21 +15,23 @@ data:
   camera_layout: "front"
   camera_distance: 1.5
 
-  max_train_nums: 4
-  max_eval_nums: 4
+  max_train_nums: 16
+  max_eval_nums: 16
 
   online_load_image: True
 
 system_type: "gaussian-splatting-3d-reconstruction-system"
 system:
 
-  geometry_type: "gaussian-splatting"
+  geometry_type: "gaussian-splatting-dynamic-tensor4d"
   geometry:
     position_lr: [0, 0.001, 0.0002, 1000]
     scale_lr: 0.001
     feature_lr: 0.01
     opacity_lr: 0.05
     rotation_lr: 0.001
+    delta_pos_lr: 0.001
+    delta_rot_lr: 0.001
     densification_interval: 300
     prune_interval: 300
     opacity_reset_interval: 50000000
@@ -45,6 +47,7 @@ system:
     init_num_pts: 4096
     pc_init_radius: 0.5
     opacity_init: 0.02
+    num_frames: 4
 
   renderer_type: "diff-gaussian-rasterizer-advanced"
   renderer:

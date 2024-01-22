@@ -28,4 +28,4 @@ class BaseGeometry(BaseModule):
         return {}
 
 
-from . import gaussian, gaussian_dynamic
+from . import gaussian, gaussian_dynamic, gaussian_dynamic_tensor4d

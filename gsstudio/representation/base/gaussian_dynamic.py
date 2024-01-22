@@ -37,6 +37,16 @@ class GaussianDynamicModel(GaussianBaseModel, DynamicBaseModel):
         self._delta_rot = torch.empty(0)
         self.time_index = 0
 
+    @property
+    def get_rotation(self):
+        return self.rotation_activation(
+            self._rotation + self._delta_rot[self.time_index]
+        )
+
+    @property
+    def get_xyz(self):
+        return self._xyz + self._delta_xyz[self.time_index]
+
     def create_from_pcd(self, pcd: BasicPointCloud, spatial_lr_scale: float):
         super().create_from_pcd(pcd, spatial_lr_scale)
         self._delta_xyz = nn.Parameter(
@@ -59,23 +69,12 @@ class GaussianDynamicModel(GaussianBaseModel, DynamicBaseModel):
             {
                 "params": [self._delta_xyz],
                 "lr": C(training_args.delta_pos_lr, 0, 0),
-                "name": "normal",
             },
         )
         l.append(
             {
                 "params": [self._delta_rot],
                 "lr": C(training_args.delta_rot_lr, 0, 0),
-                "name": "normal",
             },
         )
-
-    @property
-    def get_rotation(self):
-        return self.rotation_activation(
-            self._rotation + self._delta_rot[self.time_index]
-        )
-
-    @property
-    def get_xyz(self):
-        return self._xyz + self._delta_xyz[self.time_index]
+        self.optimize_list = l

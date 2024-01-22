@@ -27,6 +27,12 @@ pip install pymeshlab
 
 ## Quick Start
 ```
+# 3D reconstruction
+python launch.py --config configs/gaussian_splatting_3d_recon.yaml --train --gpu 0
+
+# 4D reconstruction
+python launch.py --config configs/gaussian_splatting_4d_recon.yaml --train --gpu 0
+
 # Native Gaussian Splatting + SDS Loss
 python launch.py --config configs/gaussian_splatting.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger"
 

@@ -3,7 +3,7 @@ tag: "${rmspace:${system.prompt_processor.prompt},_}"
 exp_root_dir: "outputs"
 seed: 0
 
-data_type: "random-camera-datamodule"
+data_type: "random-camera-sampler-datamodule"
 data:
   batch_size: 4
   width: 512
@@ -28,17 +28,18 @@ system:
     rotation_lr: 0.005
     densification_interval: 300
     prune_interval: 300
-    opacity_reset_interval: 50000000
+    opacity_reset_interval: 500
     densify_from_iter: 500
     densify_until_iter: ${trainer.max_steps}
     prune_from_iter: 500
     prune_until_iter: ${trainer.max_steps}
-    densify_grad_threshold: 0.01
+    densify_grad_threshold: 0.0001
     min_opac_prune: 0.005
     split_thresh: 0.02
     radii2d_thresh: 1000
+    sphere: False
 
-    init_num_pts: 4096
+    init_num_pts: 40960
     pc_init_radius: 0.8
     opacity_init: 0.2
 
@@ -86,7 +87,7 @@ trainer:
   max_steps: 5000
   log_every_n_steps: 1
   num_sanity_val_steps: 0
-  val_check_interval: 100
+  val_check_interval: 20
   enable_progress_bar: true
   precision: 32-true
 
