@@ -2,7 +2,6 @@ import os
 from dataclasses import dataclass, field
 
 import numpy as np
-import threestudio
 import torch
 
 import gsstudio

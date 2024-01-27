@@ -15,7 +15,7 @@ data:
   camera_layout: "around"
   camera_distance: 1.0
 
-  online_load_image: True
+  online_load_image: False
 
 system_type: "gaussian-splatting-3d-reconstruction-system"
 system:
@@ -57,11 +57,7 @@ system:
     diffuse_light_color: [0.0, 0.0, 0.0]
     soft_shading: true
 
-  background_type: "gaussian-mvdream-neural-environment-map-background"
-  background:
-    color_activation: sigmoid
-    random_aug: true
-    random_aug_prob: 0.0
+  background_type: "gaussian-background"
 
   exporter_type: "gaussian-mesh-exporter"
 
@@ -101,6 +97,6 @@ trainer:
   precision: 32-true
 
 checkpoint:
-  save_last: true # save at each validation time
-  save_top_k: -1
-  every_n_train_steps: ${trainer.max_steps}
+  save_last: false # save at each validation time
+  save_top_k: 1
+  every_n_train_steps: 200

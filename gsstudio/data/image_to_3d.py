@@ -6,25 +6,24 @@ from dataclasses import dataclass, field
 import cv2
 import numpy as np
 import pytorch_lightning as pl
-import threestudio
 import torch
 import torch.nn.functional as F
-from threestudio import register
-from threestudio.data.uncond import (
-    RandomCameraDataModuleConfig,
-    RandomCameraDataset,
-    RandomCameraIterableDataset,
-)
-from threestudio.utils.base import Updateable
-from threestudio.utils.config import parse_structured
-from threestudio.utils.misc import get_rank
-from threestudio.utils.ops import (
-    get_mvp_matrix,
-    get_projection_matrix,
-    get_ray_directions,
-    get_rays,
-)
-from threestudio.utils.typing import *
+from gsstudio import register
+# from gsstudio.data.uncond import (
+#     RandomCameraDataModuleConfig,
+#     RandomCameraDataset,
+#     RandomCameraIterableDataset,
+# )
+from gsstudio.utils.base import Updateable
+from gsstudio.utils.config import parse_structured
+from gsstudio.utils.misc import get_rank
+# from gsstudio.utils.ops import (
+#     get_mvp_matrix,
+#     get_projection_matrix,
+#     get_ray_directions,
+#     get_rays,
+# )
+from gsstudio.utils.typing import *
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 
 

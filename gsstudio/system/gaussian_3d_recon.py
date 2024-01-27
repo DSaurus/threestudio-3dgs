@@ -2,7 +2,6 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
-import threestudio
 import torch
 import torch.nn.functional as F
 from torch.cuda.amp import autocast

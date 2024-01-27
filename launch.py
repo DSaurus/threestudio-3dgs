@@ -3,6 +3,8 @@ import contextlib
 import importlib
 import logging
 import os
+if os.name == 'nt':
+    os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 import sys
 import time
 import traceback

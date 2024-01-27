@@ -1,5 +1,5 @@
 import torch
-from threestudio.utils.typing import *
+from gsstudio.utils.typing import *
 
 
 def batch_merge_output(output_list):

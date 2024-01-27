@@ -3,7 +3,6 @@ import random
 from dataclasses import dataclass, field
 
 import numpy as np
-import threestudio
 import torch
 import torch.nn.functional as F
 from torchmetrics import PearsonCorrCoef

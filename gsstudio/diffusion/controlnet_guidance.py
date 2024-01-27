@@ -4,10 +4,15 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
-from controlnet_aux import CannyDetector, NormalBaeDetector
-from diffusers import ControlNetModel, StableDiffusionControlNetPipeline
 
 import gsstudio
+
+try:
+    from controlnet_aux import CannyDetector, NormalBaeDetector
+except:
+    gsstudio.info("no control net")
+from diffusers import ControlNetModel, StableDiffusionControlNetPipeline
+
 from gsstudio.utils.typing import *
 
 from .stable_diffusion_guidance import DiffusersStableDiffusionGuidance
