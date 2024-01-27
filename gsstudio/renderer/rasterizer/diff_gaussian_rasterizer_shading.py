@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 import torch.nn.functional as F
-from diff_gaussian_rasterization import (
+from diff_gaussian_rasterization_X import (
     GaussianRasterizationSettings,
     GaussianRasterizer,
 )
