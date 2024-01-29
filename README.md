@@ -14,10 +14,10 @@ Gaussian Splatting Studio: A unified framwork for 3D content creation. If you wa
 git clone --branch development https://github.com/DSaurus/threestudio-3dgs.git
 mkdir dependency
 cd dependency
-git clone --recursive https://github.com/ashawkey/diff-gaussian-rasterization
+git clone --recursive https://github.com/DSaurus/diff-gaussian-rasterization-gsstudio
 git clone https://github.com/DSaurus/simple-knn.git
 git clone https://github.com/threestudio-project/threestudio.git
-pip install ./diff-gaussian-rasterization
+pip install ./diff-gaussian-rasterization-gsstudio
 pip install ./simple-knn
 pip install ./threestudio
 
