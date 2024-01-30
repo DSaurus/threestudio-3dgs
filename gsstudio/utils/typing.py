@@ -19,6 +19,7 @@ from typing import (
     NamedTuple,
     NewType,
     Optional,
+    Sequence,
     Sized,
     Tuple,
     Type,
@@ -35,6 +36,8 @@ from omegaconf import DictConfig
 
 # PyTorch Tensor type
 from torch import Tensor
+from torch import device as TorchDevice
+Device = Union[str, TorchDevice]
 
 # Runtime type checking decorator
 from typeguard import typechecked as typechecker

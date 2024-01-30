@@ -67,6 +67,9 @@ info = rank_zero_info
 @rank_zero_only
 def warn(*args, **kwargs):
     logger.warn(*args, **kwargs)
-
+    
+@rank_zero_only
+def error(*args, **kwargs):
+    logger.error(*args, **kwargs)
 
 from . import data, diffusion, loss, renderer, representation, system
