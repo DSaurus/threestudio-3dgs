@@ -346,6 +346,32 @@ class CamerasBase(BaseModule):
             attr = [attr]
         assert hasattr(self, attr) and type(getattr(self, attr)) == torch.Tensor
         getattr(self, attr).requires_grad = False
+        
+    def print(self):
+        gsstudio.debug(f"Total cameras: {self._N}")
+        gsstudio.debug("Shared fields:")
+        for field in self._SHARED_FIELDS:
+            gsstudio.debug(f" {field}: {getattr(self, field)}")
+        gsstudio.debug("Fields:")
+        for field in self._FIELDS:
+            gsstudio.debug(f" {field}: {getattr(self, field)}")
+    
+    def print_shape(self):
+        gsstudio.debug(f"Total cameras: {self._N}")
+        gsstudio.debug("Shared fields:")
+        for field in self._SHARED_FIELDS:
+            _f = getattr(self, field)
+            if isinstance(_f, torch.Tensor):
+                gsstudio.debug(f" {field}: {_f.shape}")
+            else:
+                gsstudio.debug(f" {field}: {_f}")
+        gsstudio.debug("Fields:")
+        for field in self._FIELDS:
+            _f = getattr(self, field)
+            if isinstance(_f, torch.Tensor):
+                gsstudio.debug(f" {field}: {_f.shape}")
+            else:
+                gsstudio.debug(f" {field}: {_f}")
 
     def __getitem__(
         self, index: Union[int, List[int], torch.BoolTensor, torch.LongTensor]
@@ -548,7 +574,7 @@ class PerspectiveCameras(CamerasBase):
             else:
                 self.cx = torch.tensor(self.image_size[1] / 2, device=self.device, dtype=torch.float32).reshape(1, )
                 self.cy = torch.tensor(self.image_size[0] / 2, device=self.device, dtype=torch.float32).reshape(1, )
-                self.principal_point = torch.stack([self.cx, self.cy], dim=1)
+            self.principal_point = torch.stack([self.cx, self.cy], dim=1)
             
             if self.focal_length is not None:
                 self.K = torch.eye(4, device=self.device, dtype=torch.float32)[None]
