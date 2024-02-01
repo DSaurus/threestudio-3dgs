@@ -1,4 +1,4 @@
-# threestudio-3dgs
+# Gaussian Splatting Studio
 <img src="https://github.com/DSaurus/threestudio-3dgs/assets/24589363/55874a57-cff1-4e83-a006-76585bcd3b76" width="" height="128">
 
 <img src="https://github.com/DSaurus/threestudio-3dgs/assets/24589363/505f35e5-b160-4c12-92dc-03482404ef5e" width="" height="128">
@@ -7,51 +7,47 @@
 
 <img src="https://github.com/DSaurus/threestudio-3dgs/assets/24589363/f524524e-33aa-4701-9f0d-31cba23eaead" width="" height="128">
 
-The Gaussian Splatting extension for threestudio. This extension is writen by [Ruizhi Shao](https://github.com/DSaurus) and [Youtian Lin](https://github.com/Linyou). To use it, please install [threestudio](https://github.com/threestudio-project/threestudio) first and then install this extension in threestudio `custom` directory.
+Gaussian Splatting Studio: A unified framwork for 3D content creation. If you want to use it as threestudio extension, please install [threestudio](https://github.com/threestudio-project/threestudio) first and then install this extension in threestudio `custom` directory.
 
 ## Advanced Gaussian Splatting Installation (Recommend)
 ```
-cd custom
-git clone https://github.com/DSaurus/threestudio-3dgs.git
-cd threestudio-3dgs
-git clone --recursive https://github.com/ashawkey/diff-gaussian-rasterization
+git clone --branch development https://github.com/DSaurus/threestudio-3dgs.git
+mkdir dependency
+cd dependency
+git clone --recursive https://github.com/DSaurus/diff-gaussian-rasterization-gsstudio
 git clone https://github.com/DSaurus/simple-knn.git
-pip install ./diff-gaussian-rasterization
+git clone https://github.com/threestudio-project/threestudio.git
+pip install ./diff-gaussian-rasterization-gsstudio
 pip install ./simple-knn
-```
-
-## Native Gaussian Splatting Installation
-```
-cd custom
-git clone https://github.com/DSaurus/threestudio-3dgs.git
-cd threestudio-3dgs
-git clone git@github.com:graphdeco-inria/gaussian-splatting.git --recursive
-cd gaussian-splatting/submodules
-python -m pip install diff-gaussian-rasterization/.
-python -m pip install simple-knn/
+pip install ./threestudio
 
 # If you want to export mesh, please install pymeshlab
 pip install pymeshlab
 ```
 
-
 ## Quick Start
 ```
+# 3D reconstruction
+python launch.py --config configs/gaussian_splatting_3d_recon.yaml --train --gpu 0
+
+# 4D reconstruction
+python launch.py --config configs/gaussian_splatting_4d_recon.yaml --train --gpu 0
+
 # Native Gaussian Splatting + SDS Loss
-python launch.py --config custom/threestudio-3dgs/configs/gaussian_splatting.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger"
+python launch.py --config configs/gaussian_splatting.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger"
 
 # Advanced Gaussian Splatting with background + SDS Loss
-python launch.py --config custom/threestudio-3dgs/configs/gaussian_splatting_background.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger"
+python launch.py --config configs/gaussian_splatting_background.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger"
 
 # Advanced Gaussian Splatting with background and shading + SDS Loss
-python launch.py --config custom/threestudio-3dgs/configs/gaussian_splatting_shading.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger"
+python launch.py --config configs/gaussian_splatting_shading.yaml  --train --gpu 0 system.prompt_processor.prompt="a delicious hamburger"
 ```
 
 ## Gaussian Splatting + MVDream
 Please first install [MVDream extension](https://github.com/DSaurus/threestudio-mvdream), then you can run the following script:
 ```
 # Advanced Gaussian Splatting with background and shading + MVDream
-python launch.py --config custom/threestudio-3dgs/configs/gaussian_splatting_mvdream.yaml  --train --gpu 0 system.prompt_processor.prompt="an astronaut riding a horse"
+python launch.py --config configs/gaussian_splatting_mvdream.yaml  --train --gpu 0 system.prompt_processor.prompt="an astronaut riding a horse"
 ```
 
 ## Gaussian Splatting + Zero-123

@@ -1,0 +1,111 @@
+name: "gs-4d-reconstruction"
+tag: "${rmspace:4drecon,_}"
+exp_root_dir: "outputs"
+seed: 0
+
+data_type: "dynamic-multiview-camera-sampler-datamodule"
+data:
+  dataroot: "/root/autodl-tmp/threestudio/custom/threestudio-3dgs/temp/t4d_zzr_gsstudio"
+  train_downsample_resolution: 2
+  eval_downsample_resolution: 2
+  train_data_interval: 1
+  eval_data_interval: 1
+  batch_size: 1
+  eval_batch_size: 1
+  camera_layout: "front"
+  camera_distance: 1.5
+
+  max_train_nums: 16
+  max_eval_nums: 16
+
+  online_load_image: True
+
+system_type: "gaussian-splatting-3d-reconstruction-system"
+system:
+
+  geometry_type: "gaussian-splatting-dynamic-tensor4d"
+  geometry:
+    position_lr: [0, 0.001, 0.0002, 1000]
+    scale_lr: 0.001
+    feature_lr: 0.01
+    opacity_lr: 0.05
+    rotation_lr: 0.001
+    delta_pos_lr: 0.001
+    delta_rot_lr: 0.001
+    densification_interval: 300
+    prune_interval: 300
+    opacity_reset_interval: 50000000
+    densify_from_iter: 500
+    densify_until_iter: ${trainer.max_steps}
+    prune_from_iter: 500
+    prune_until_iter: ${trainer.max_steps}
+    densify_grad_threshold: 0.0002
+    min_opac_prune: 0.005
+    split_thresh: 0.02
+    radii2d_thresh: 1000
+
+    init_num_pts: 4096
+    pc_init_radius: 0.5
+    opacity_init: 0.02
+    num_frames: 4
+
+  renderer_type: "diff-gaussian-rasterizer-advanced"
+  renderer:
+    debug: false
+    back_ground_color: [0, 0, 0]
+
+  material_type: "gaussian-diffuse-with-point-light-material"
+  material:
+    ambient_only_steps: 200000
+    textureless_prob: 0.0
+    ambient_light_color: [1.0, 1.0, 1.0]
+    diffuse_light_color: [0.0, 0.0, 0.0]
+    soft_shading: true
+
+  background_type: "gaussian-mvdream-neural-environment-map-background"
+  background:
+    color_activation: sigmoid
+    random_aug: true
+    random_aug_prob: 0.0
+
+  exporter_type: "gaussian-mesh-exporter"
+
+  loggers:
+    wandb:
+      enable: false
+      project: 'gsstudio'
+      name: None
+
+  loss:
+    lambda_rgb: 1.0
+    lambda_mask: 1.0
+    lambda_position: 0.0
+    lambda_opacity: 0.000
+    lambda_scales: 0.000
+    lambda_tv_loss: 0.0
+    lambda_depth_tv_loss: 0.0
+
+  optimizer:
+    name: Adam
+    args:
+      lr: 0.01
+      betas: [0.9, 0.99]
+      eps: 1.e-15
+    params:
+      background:
+        lr: 0.001
+
+
+
+trainer:
+  max_steps: 20000
+  log_every_n_steps: 1
+  num_sanity_val_steps: 0
+  val_check_interval: 100
+  enable_progress_bar: true
+  precision: 32-true
+
+checkpoint:
+  save_last: true # save at each validation time
+  save_top_k: -1
+  every_n_train_steps: ${trainer.max_steps}

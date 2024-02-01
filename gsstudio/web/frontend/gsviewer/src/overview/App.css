@@ -1,0 +1,21 @@
+.custom-navbar {
+  background-color: #333;
+  border-bottom: 1px solid #999;
+}
+.custom-sidebar {
+  background-color: #333;
+  border-right: 1px solid #999;
+  height: 100%;
+  padding-top: 1rem;
+}
+
+/*.custom-card-body {
+  background-color: #333;
+}
+.custom-card-text{
+  color: #999;
+} */
+.content {
+  padding-top: 6rem; /* Adjust this value based on the height of your Navbar */
+  padding-left: 6rem;
+}
