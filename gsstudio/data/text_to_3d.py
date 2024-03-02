@@ -97,6 +97,9 @@ class RandomCameraIterableDataset(IterableDataset, Updateable):
         self.camera_sampler.azimuth_range = self.cfg.azimuth_range
         self.camera_sampler.camera_distance_range = self.cfg.camera_distance_range
         self.camera_sampler.fovy_range = self.cfg.fovy_range
+        self.camera_sampler.camera_perturb = self.cfg.camera_perturb
+        self.camera_sampler.center_perturb = self.cfg.center_perturb
+        self.camera_sampler.batch_uniform_azimuth = self.cfg.batch_uniform_azimuth
 
         self.light_sampler.light_distance_range = self.cfg.light_distance_range
         self.light_sampler.light_position_perturb = self.cfg.light_position_perturb
