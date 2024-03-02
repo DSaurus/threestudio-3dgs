@@ -4,7 +4,7 @@ import random
 import torch
 import torch.nn.functional as F
 
-from gsstudio.data.utils.camera_utils import CameraOutput
+from gsstudio.data.utils.camera_utils import CameraOutput, rad2position
 from gsstudio.utils.typing import *
 
 
@@ -113,15 +113,7 @@ class CameraSampler:
         # right hand coordinate system, x back, y down, z right
         # elevation in (-90, 90), azimuth from +x to +y in (-180, 180)
         camera_positions: Float[Tensor, "B 3"] = (
-            torch.stack(
-                [
-                    camera_distances * torch.cos(elevation) * torch.cos(azimuth),
-                    -camera_distances * torch.sin(elevation),
-                    camera_distances * torch.cos(elevation) * torch.sin(azimuth),
-                ],
-                dim=-1,
-            )
-            + world_center
+            rad2position(elevation, azimuth, camera_distances) + world_center
         )
 
         # default scene center at origin

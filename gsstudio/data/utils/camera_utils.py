@@ -12,20 +12,29 @@ def convert_nerf2gl(C2W, intrinsic, height):
     # GL, Gaussian (Original NeRF): depth -> -z, image origin at top-left -> x+ right, y+ down
     # CV: depth -> +z, image origin at top-left -> x+ right, y+ down
     # NeRF: depth -> +z, image origin at top-left -> x+ right, y+ up
-    flip_yz = torch.eye(4, device=C2W.device).unsqueeze(0).repeat(C2W.shape[0], 1, 1)
+    # flip_yz = torch.eye(4, device=C2W.device).unsqueeze(0).repeat(C2W.shape[0], 1, 1)
     # flip_yz[:, 2, 2] = -1
-    flip_yz[:, 1, 1] = -1
-    C2W = torch.matmul(C2W, flip_yz)
+    # flip_yz[:, 1, 1] = -1
+    # C2W = torch.matmul(C2W, flip_yz)
 
-    rot_z = torch.eye(4, device=C2W.device).unsqueeze(0).repeat(C2W.shape[0], 1, 1)
-    rot_z[:, 1, 1] = -1
-    rot_z[:, 0, 0] = -1
-    W2C = torch.inverse(C2W)
-    W2C = torch.matmul(W2C, rot_z)
-    C2W = torch.inverse(W2C)
-    # intrinsic[:, 1, 1] *= -1
-    # intrinsic[:, 1, 2] = height - intrinsic[:, 1, 2]
+    # rot_z = torch.eye(4, device=C2W.device).unsqueeze(0).repeat(C2W.shape[0], 1, 1)
+    # rot_z[:, 1, 1] = -1
+    # rot_z[:, 0, 0] = -1
+    # W2C = torch.inverse(C2W)
+    # W2C = torch.matmul(W2C, rot_z)
+    # C2W = torch.inverse(W2C)
+    intrinsic[:, 1, 1] *= -1
+    intrinsic[:, 1, 2] = height - intrinsic[:, 1, 2]
     return C2W, intrinsic
+
+
+def rad2position(elevation, azimuth, distance):
+    # elevation, azimuth: rad
+    # distance: float
+    x = distance * torch.cos(elevation) * torch.cos(azimuth)
+    y = distance * torch.sin(elevation)
+    z = -distance * torch.cos(elevation) * torch.sin(azimuth)
+    return torch.stack([x, y, z], dim=-1)
 
 
 def samples2matrix(
@@ -49,7 +58,7 @@ def samples2matrix(
     right: Float[Tensor, "B 3"] = F.normalize(torch.cross(lookat, up), dim=-1)
     up = F.normalize(torch.cross(right, lookat), dim=-1)
     c2w3x4: Float[Tensor, "B 3 4"] = torch.cat(
-        [torch.stack([right, up, -lookat], dim=-1), camera_positions[:, :, None]],
+        [torch.stack([right, -up, lookat], dim=-1), camera_positions[:, :, None]],
         dim=-1,
     )
     c2w: Float[Tensor, "B 4 4"] = torch.cat(
@@ -104,13 +113,13 @@ def get_projection_matrix_zplus(znear, zfar, fovX, fovY, cx=0.0, cy=0.0):
     P[:, 1, 1] = 1.0 / tanHalfFovY
     P[:, 0, 2] = cx
     P[:, 1, 2] = cy
-    # P[:, 3, 2] = 1
-    # P[:, 2, 2] = (zfar - znear) / (zfar + znear)
-    # P[:, 2, 3] = -2 * (zfar * znear) / (zfar + znear)
+    P[:, 3, 2] = 1
+    P[:, 2, 2] = (zfar - znear) / (zfar + znear)
+    P[:, 2, 3] = -2 * (zfar * znear) / (zfar + znear)
 
-    P[:, 3, 2] = -1
-    P[:, 2, 2] = -(zfar + znear) / (zfar - znear)
-    P[:, 2, 3] = -2 * (zfar * znear) / (zfar - znear)
+    # P[:, 3, 2] = -1
+    # P[:, 2, 2] = -(zfar + znear) / (zfar - znear)
+    # P[:, 2, 3] = -2 * (zfar * znear) / (zfar - znear)
     return P
 
 
