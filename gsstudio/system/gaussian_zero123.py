@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torchmetrics import PearsonCorrCoef
 
 import gsstudio
+from gsstudio.loss.general_loss import tv_loss
 from gsstudio.representation.base.gaussian import BasicPointCloud
 from gsstudio.system.gaussian_base import GaussianBaseSystem
 from gsstudio.utils.config import parse_optimizer, parse_scheduler
@@ -40,18 +41,6 @@ class Zero123(GaussianBaseSystem):
         # no prompt processor
         self.guidance = gsstudio.find(self.cfg.guidance_type)(self.cfg.guidance)
 
-        # visualize all training images
-        all_images = self.trainer.datamodule.train_dataloader().dataset.get_all_images()
-        self.save_image_grid(
-            "all_training_images.png",
-            [
-                {"type": "rgb", "img": image, "kwargs": {"data_format": "HWC"}}
-                for image in all_images
-            ],
-            name="on_fit_start",
-            step=self.true_global_step,
-        )
-
         self.pearson = PearsonCorrCoef().to(self.device)
 
     def training_substep(self, batch, batch_idx, guidance: str):
@@ -59,6 +48,7 @@ class Zero123(GaussianBaseSystem):
         Args:
             guidance: one of "ref" (reference image supervision), "zero123"
         """
+        cond_rgb = batch["rgb"]
         if guidance == "ref":
             ambient_ratio = 1.0
             shading = "diffuse"
@@ -131,14 +121,18 @@ class Zero123(GaussianBaseSystem):
                 )
         elif guidance == "zero123":
             # zero123
+            batch["cond_rgb"] = cond_rgb
             guidance_out = self.guidance(
                 out["comp_rgb"],
+                prompt_utils=None,
                 **batch,
                 rgb_as_latents=False,
                 guidance_eval=guidance_eval,
             )
             # claforte: TODO: rename the loss_terms keys
-            set_loss("sds", guidance_out["loss_sds"])
+            for key in guidance_out:
+                if key.startswith("loss_"):
+                    set_loss(key[5:], guidance_out[key])
 
         if self.C(self.cfg.loss.lambda_normal_smooth) > 0:
             if "comp_normal" not in out:
@@ -151,6 +145,16 @@ class Zero123(GaussianBaseSystem):
                 (normal[:, 1:, :, :] - normal[:, :-1, :, :]).square().mean()
                 + (normal[:, :, 1:, :] - normal[:, :, :-1, :]).square().mean(),
             )
+
+        if (
+            out.__contains__("comp_depth")
+            and self.cfg.loss["lambda_depth_tv_loss"] > 0.0
+        ):
+            loss_depth_tv = self.C(self.cfg.loss["lambda_depth_tv_loss"]) * (
+                tv_loss(out["comp_depth"].permute(0, 3, 1, 2))
+            )
+            self.log(f"train/loss_depth_tv", loss_depth_tv)
+            loss += loss_depth_tv
 
         loss = 0.0
         for name, value in loss_terms.items():
@@ -284,6 +288,17 @@ class Zero123(GaussianBaseSystem):
                     }
                 ]
                 if "comp_normal" in out
+                else []
+            )
+            + (
+                [
+                    {
+                        "type": "grayscale",
+                        "img": out["comp_depth"][0],
+                        "kwargs": {},
+                    }
+                ]
+                if "comp_depth" in out
                 else []
             ),
             name="test_step",
