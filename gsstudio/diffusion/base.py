@@ -173,6 +173,10 @@ class DiffusersGuidance(BaseObject):
             loss_hifa = self.compute_grad_hifa(latents, t, **merged_cond)
             guidance_out["loss_hifa"] = loss_hifa
 
+        if hasattr(self, "init_csd"):
+            loss_csd = self.compute_grad_csd(latents, t, **merged_cond)
+            guidance_out["loss_csd"] = loss_csd
+
         return guidance_out
 
     @torch.cuda.amp.autocast(enabled=False)
