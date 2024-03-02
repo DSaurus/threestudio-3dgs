@@ -8,23 +8,22 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
-from gsstudio import register
-# from gsstudio.data.uncond import (
-#     RandomCameraDataModuleConfig,
-#     RandomCameraDataset,
-#     RandomCameraIterableDataset,
-# )
+from torch.utils.data import DataLoader, Dataset, IterableDataset
+
+import gsstudio
+from gsstudio.data.text_to_3d import (
+    RandomCameraDataModuleConfig,
+    RandomCameraDataset,
+    RandomCameraIterableDataset,
+)
+from gsstudio.data.utils.camera_generation import CameraSampler
+from gsstudio.data.utils.camera_utils import matrix2rays, samples2matrix
+from gsstudio.data.utils.image_utils import ImageOutput
+from gsstudio.data.utils.light_generation import LightSampler
 from gsstudio.utils.base import Updateable
 from gsstudio.utils.config import parse_structured
 from gsstudio.utils.misc import get_rank
-# from gsstudio.utils.ops import (
-#     get_mvp_matrix,
-#     get_projection_matrix,
-#     get_ray_directions,
-#     get_rays,
-# )
 from gsstudio.utils.typing import *
-from torch.utils.data import DataLoader, Dataset, IterableDataset
 
 
 @dataclass
@@ -70,40 +69,14 @@ class SingleImageDataBase:
 
         elevation_deg = torch.FloatTensor([self.cfg.default_elevation_deg])
         azimuth_deg = torch.FloatTensor([self.cfg.default_azimuth_deg])
-        camera_distance = torch.FloatTensor([self.cfg.default_camera_distance])
-
-        elevation = elevation_deg * math.pi / 180
-        azimuth = azimuth_deg * math.pi / 180
-        camera_position: Float[Tensor, "1 3"] = torch.stack(
-            [
-                camera_distance * torch.cos(elevation) * torch.cos(azimuth),
-                camera_distance * torch.cos(elevation) * torch.sin(azimuth),
-                camera_distance * torch.sin(elevation),
-            ],
-            dim=-1,
+        self.camera_distance = torch.FloatTensor([self.cfg.default_camera_distance])
+        fovy_deg: Float[Tensor, "B"] = torch.full_like(
+            elevation_deg, self.cfg.default_fovy_deg
         )
 
-        center: Float[Tensor, "1 3"] = torch.zeros_like(camera_position)
-        up: Float[Tensor, "1 3"] = torch.as_tensor([0, 0, 1], dtype=torch.float32)[None]
-
-        light_position: Float[Tensor, "1 3"] = camera_position
-        lookat: Float[Tensor, "1 3"] = F.normalize(center - camera_position, dim=-1)
-        right: Float[Tensor, "1 3"] = F.normalize(torch.cross(lookat, up), dim=-1)
-        up = F.normalize(torch.cross(right, lookat), dim=-1)
-        self.c2w: Float[Tensor, "1 3 4"] = torch.cat(
-            [torch.stack([right, up, -lookat], dim=-1), camera_position[:, :, None]],
-            dim=-1,
-        )
-        self.c2w4x4: Float[Tensor, "B 4 4"] = torch.cat(
-            [self.c2w, torch.zeros_like(self.c2w[:, :1])], dim=1
-        )
-        self.c2w4x4[:, 3, 3] = 1.0
-
-        self.camera_position = camera_position
-        self.light_position = light_position
-        self.elevation_deg, self.azimuth_deg = elevation_deg, azimuth_deg
-        self.camera_distance = camera_distance
-        self.fovy = torch.deg2rad(torch.FloatTensor([self.cfg.default_fovy_deg]))
+        self.elevation = elevation_deg * math.pi / 180
+        self.azimuth = azimuth_deg * math.pi / 180
+        self.fovy = fovy_deg * math.pi / 180
 
         self.heights: List[int] = (
             [self.cfg.height] if isinstance(self.cfg.height, int) else self.cfg.height
@@ -115,116 +88,71 @@ class SingleImageDataBase:
         self.resolution_milestones: List[int]
         if len(self.heights) == 1 and len(self.widths) == 1:
             if len(self.cfg.resolution_milestones) > 0:
-                threestudio.warn(
+                gsstudio.warn(
                     "Ignoring resolution_milestones since height and width are not changing"
                 )
             self.resolution_milestones = [-1]
         else:
             assert len(self.heights) == len(self.cfg.resolution_milestones) + 1
             self.resolution_milestones = [-1] + self.cfg.resolution_milestones
-
-        self.directions_unit_focals = [
-            get_ray_directions(H=height, W=width, focal=1.0)
-            for (height, width) in zip(self.heights, self.widths)
-        ]
-        self.focal_lengths = [
-            0.5 * height / torch.tan(0.5 * self.fovy) for height in self.heights
-        ]
-
         self.height: int = self.heights[0]
         self.width: int = self.widths[0]
-        self.directions_unit_focal = self.directions_unit_focals[0]
-        self.focal_length = self.focal_lengths[0]
-        self.set_rays()
-        self.load_images()
-        self.prev_height = self.height
 
-    def set_rays(self):
-        # get directions by dividing directions_unit_focal by focal length
-        directions: Float[Tensor, "1 H W 3"] = self.directions_unit_focal[None]
-        directions[:, :, :, :2] = directions[:, :, :, :2] / self.focal_length
+        self.camera_sampler = CameraSampler()
+        self.camera_sampler.batch_size = 1
+        self.camera_sampler.disable_perturb()
 
-        rays_o, rays_d = get_rays(
-            directions,
-            self.c2w,
-            keepdim=True,
-            noise_scale=self.cfg.rays_noise_scale,
-            normalize=self.cfg.rays_d_normalize,
-        )
+        self.light_sampler = LightSampler()
 
-        proj_mtx: Float[Tensor, "4 4"] = get_projection_matrix(
-            self.fovy, self.width / self.height, 0.1, 100.0
-        )  # FIXME: hard-coded near and far
-        mvp_mtx: Float[Tensor, "4 4"] = get_mvp_matrix(self.c2w, proj_mtx)
-
-        self.rays_o, self.rays_d = rays_o, rays_d
-        self.mvp_mtx = mvp_mtx
-
-    def load_images(self):
-        # load image
+        self.image = ImageOutput()
+        self.image.white_background = True
         assert os.path.exists(
             self.cfg.image_path
         ), f"Could not find image {self.cfg.image_path}!"
-        rgba = cv2.cvtColor(
-            cv2.imread(self.cfg.image_path, cv2.IMREAD_UNCHANGED), cv2.COLOR_BGRA2RGBA
+        self.image.frame_image_path = [self.cfg.image_path]
+        gsstudio.info(
+            f"single image dataset: load image {self.cfg.image_path} {self.height}x{self.width}"
         )
-        rgba = (
-            cv2.resize(
-                rgba, (self.width, self.height), interpolation=cv2.INTER_AREA
-            ).astype(np.float32)
-            / 255.0
-        )
-        rgb = rgba[..., :3]
-        self.rgb: Float[Tensor, "1 H W 3"] = (
-            torch.from_numpy(rgb).unsqueeze(0).contiguous().to(self.rank)
-        )
-        self.mask: Float[Tensor, "1 H W 1"] = (
-            torch.from_numpy(rgba[..., 3:] > 0.5).unsqueeze(0).to(self.rank)
-        )
-        print(
-            f"[INFO] single image dataset: load image {self.cfg.image_path} {self.rgb.shape}"
-        )
-
-        # load depth
         if self.cfg.requires_depth:
             depth_path = self.cfg.image_path.replace("_rgba.png", "_depth.png")
             assert os.path.exists(depth_path)
-            depth = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
-            depth = cv2.resize(
-                depth, (self.width, self.height), interpolation=cv2.INTER_AREA
-            )
-            self.depth: Float[Tensor, "1 H W 1"] = (
-                torch.from_numpy(depth.astype(np.float32) / 255.0)
-                .unsqueeze(0)
-                .to(self.rank)
-            )
-            print(
-                f"[INFO] single image dataset: load depth {depth_path} {self.depth.shape}"
-            )
-        else:
-            self.depth = None
-
-        # load normal
+            self.image.frame_depth_path = [depth_path]
         if self.cfg.requires_normal:
             normal_path = self.cfg.image_path.replace("_rgba.png", "_normal.png")
             assert os.path.exists(normal_path)
-            normal = cv2.imread(normal_path, cv2.IMREAD_UNCHANGED)
-            normal = cv2.resize(
-                normal, (self.width, self.height), interpolation=cv2.INTER_AREA
-            )
-            self.normal: Float[Tensor, "1 H W 3"] = (
-                torch.from_numpy(normal.astype(np.float32) / 255.0)
-                .unsqueeze(0)
-                .to(self.rank)
-            )
-            print(
-                f"[INFO] single image dataset: load normal {normal_path} {self.normal.shape}"
-            )
-        else:
-            self.normal = None
+            self.image.frame_normal_path = [normal_path]
+        self.image.key_mapping["image"] = "rgb"
+        self.image.key_mapping["depth"] = "ref_depth"
+        self.image.key_mapping["normal"] = "ref_normal"
 
-    def get_all_images(self):
-        return self.rgb
+        self.set_camera()
+
+        self.image.width = self.width
+        self.image.height = self.height
+        self.image.load_image()
+
+        self.prev_height = self.height
+
+    def set_camera(self):
+        # get directions by dividing directions_unit_focal by focal length
+        self.camera_out = self.camera_sampler.sample(
+            elevation=self.elevation,
+            azimuth=self.azimuth,
+            camera_distances=self.camera_distance,
+            fovy=self.fovy,
+            height=self.height,
+            width=self.width,
+        )
+        (
+            self.camera_out.c2w,
+            self.camera_out.intrinsic,
+            self.camera_out.proj_mtx,
+        ) = samples2matrix(**self.camera_out.to_dict())
+        self.camera_out.rays_o, self.camera_out.rays_d = matrix2rays(
+            normalize=self.cfg.rays_d_normalize, **self.camera_out.to_dict()
+        )
+
+        self.light_out = self.light_sampler.sample(self.camera_out.camera_positions[:1])
 
     def update_step_(self, epoch: int, global_step: int, on_load_weights: bool = False):
         size_ind = bisect.bisect_right(self.resolution_milestones, global_step) - 1
@@ -234,11 +162,13 @@ class SingleImageDataBase:
 
         self.prev_height = self.height
         self.width = self.widths[size_ind]
-        self.directions_unit_focal = self.directions_unit_focals[size_ind]
-        self.focal_length = self.focal_lengths[size_ind]
-        threestudio.debug(f"Training height: {self.height}, width: {self.width}")
-        self.set_rays()
-        self.load_images()
+        gsstudio.debug(f"Training height: {self.height}, width: {self.width}")
+
+        self.set_camera()
+
+        self.image.width = self.width
+        self.image.height = self.height
+        self.image.load_image()
 
 
 class SingleImageIterableDataset(IterableDataset, SingleImageDataBase, Updateable):
@@ -248,22 +178,9 @@ class SingleImageIterableDataset(IterableDataset, SingleImageDataBase, Updateabl
 
     def collate(self, batch) -> Dict[str, Any]:
         batch = {
-            "rays_o": self.rays_o,
-            "rays_d": self.rays_d,
-            "mvp_mtx": self.mvp_mtx,
-            "camera_positions": self.camera_position,
-            "light_positions": self.light_position,
-            "elevation": self.elevation_deg,
-            "azimuth": self.azimuth_deg,
-            "camera_distances": self.camera_distance,
-            "rgb": self.rgb,
-            "ref_depth": self.depth,
-            "ref_normal": self.normal,
-            "mask": self.mask,
-            "height": self.height,
-            "width": self.width,
-            "c2w": self.c2w4x4,
-            "fovy": self.fovy,
+            **self.camera_out.get_index(0, is_batch=True).to_dict(),
+            **self.image.get_index(0, is_batch=True).to_dict(),
+            **self.light_out.to_dict(),
         }
         if self.cfg.use_random_camera:
             batch["random_camera"] = self.random_pose_generator.collate(None)
@@ -291,7 +208,7 @@ class SingleImageDataset(Dataset, SingleImageDataBase):
         return self.random_pose_generator[index]
 
 
-@register("single-image-datamodule")
+@gsstudio.register("single-image-sampler-datamodule")
 class SingleImageDataModule(pl.LightningDataModule):
     cfg: SingleImageDataModuleConfig
 
