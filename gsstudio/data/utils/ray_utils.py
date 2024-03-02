@@ -56,7 +56,7 @@ def get_ray_directions(
 def get_rays(
     directions: Float[Tensor, "... 3"],
     c2w: Float[Tensor, "... 4 4"],
-    keepdim=False,
+    keepdim=True,
     noise_scale=0.0,
     normalize=True,
 ) -> Tuple[Float[Tensor, "... 3"], Float[Tensor, "... 3"]]:
