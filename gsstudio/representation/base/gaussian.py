@@ -62,6 +62,7 @@ class GaussianBaseModel(BaseGeometry, GaussianIO):
         radii2d_thresh: Any = 1000
 
         sphere: bool = False
+        scaling_reg: bool = False
         prune_big_points: bool = False
         color_clip: Any = 2.0
 
@@ -209,6 +210,14 @@ class GaussianBaseModel(BaseGeometry, GaussianIO):
 
     @property
     def get_scaling(self):
+        if self.cfg.scaling_reg:
+            return self.scaling_activation(
+                (
+                    self._scaling
+                    + torch.mean(self._scaling, dim=-1).unsqueeze(-1).repeat(1, 3)
+                )
+                / 2
+            )
         if self.cfg.sphere:
             return self.scaling_activation(
                 torch.mean(self._scaling, dim=-1).unsqueeze(-1).repeat(1, 3)
@@ -409,10 +418,9 @@ class GaussianBaseModel(BaseGeometry, GaussianIO):
         opacities_new = inverse_sigmoid(
             torch.min(
                 self.get_opacity,
-                torch.ones_like(self.get_opacity) * self.cfg.min_opac_prune * 2,
+                torch.ones_like(self.get_opacity) * self.cfg.min_opac_prune * 1.01,
             )
         )
-        # opacities_new = inverse_sigmoid(self.get_opacity * 0.9)
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
 
