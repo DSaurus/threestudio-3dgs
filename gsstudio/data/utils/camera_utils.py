@@ -8,6 +8,17 @@ from gsstudio.data.utils.ray_utils import get_ray_directions, get_rays
 from gsstudio.utils.typing import *
 
 
+def perspective(c2w, intrinsic, pts):
+    # c2w: (B, 4, 4), intrinsic: (B, 3, 3), pts: (B, N, 3)
+    # return: (B, N, 2)
+    w2c = torch.inverse(c2w)
+    pts = pts.permute(0, 2, 1)
+    pts_proj = torch.matmul(w2c[:, :3, :3], pts) + w2c[:, :3, 3:]
+    pts_proj = torch.matmul(intrinsic, pts_proj)
+    pts_proj = pts_proj[:, :2] / pts_proj[:, 2:]
+    return pts_proj.permute(0, 2, 1)
+
+
 def convert_nerf2gl(C2W, intrinsic, height):
     # GL, Gaussian (Original NeRF): depth -> -z, image origin at top-left -> x+ right, y+ down
     # CV: depth -> +z, image origin at top-left -> x+ right, y+ down
@@ -48,6 +59,11 @@ def samples2matrix(
     z_far=100,
     **kwargs
 ):
+    if not isinstance(fovx, torch.Tensor):
+        fovx = torch.Tensor([fovx]).to(camera_positions.device)
+    if not isinstance(fovy, torch.Tensor):
+        fovy = torch.Tensor([fovy]).to(camera_positions.device)
+
     batch_size = camera_positions.shape[0]
     up: Float[Tensor, "B 3"] = torch.as_tensor([0, 1, 0], dtype=torch.float32)[
         None, :
