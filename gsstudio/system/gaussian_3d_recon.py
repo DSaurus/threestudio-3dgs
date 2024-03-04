@@ -38,9 +38,7 @@ class GaussianSplatting(GaussianBaseSystem):
         out = self(batch)
 
         guidance_inp = out["comp_rgb"]
-        guidance_out = {
-            "loss_rgb": gaussian_loss(guidance_inp.permute(0, 3, 1, 2), batch["image"])
-        }
+        guidance_out = {"loss_rgb": gaussian_loss(guidance_inp, batch["image"])}
         loss_rgb = 0.0
         loss = 0.0
 
@@ -140,7 +138,7 @@ class GaussianSplatting(GaussianBaseSystem):
                 [
                     {
                         "type": "rgb",
-                        "img": batch["image"][0].permute(1, 2, 0),
+                        "img": batch["image"][0],
                         "kwargs": {"data_format": "HWC", "data_range": (0, 1)},
                     }
                 ]
@@ -183,7 +181,7 @@ class GaussianSplatting(GaussianBaseSystem):
                 [
                     {
                         "type": "rgb",
-                        "img": batch["image"][0].permute(1, 2, 0),
+                        "img": batch["image"][0],
                         "kwargs": {"data_format": "HWC", "data_range": (0, 1)},
                     }
                 ]
