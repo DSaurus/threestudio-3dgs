@@ -11,13 +11,13 @@ import torch
 import torch.nn.functional as F
 from scipy.spatial.transform import Rotation as Rot
 from scipy.spatial.transform import Slerp
-from gsstudio.utils.base import Updateable
-from gsstudio.utils.config import parse_structured
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from tqdm import tqdm
 
 import gsstudio
 from gsstudio.data.utils.camera_loader import CameraLoader
+from gsstudio.utils.base import Updateable
+from gsstudio.utils.config import parse_structured
 from gsstudio.utils.typing import *
 
 
@@ -69,6 +69,9 @@ class DynamicMultiviewsDataModuleConfig:
     max_train_nums: int = -1
     max_eval_nums: int = -1
 
+    incremental_train: bool = False
+    incremental_interval: int = 250
+
 
 class DynamicMultiviewIterableDataset(IterableDataset, Updateable):
     def __init__(self, cfg: Any) -> None:
@@ -91,6 +94,8 @@ class DynamicMultiviewIterableDataset(IterableDataset, Updateable):
         self.cameras = self.camera_loader.cameras
         self.images = self.camera_loader.images
 
+        self.step = 0
+
     def __iter__(self):
         while True:
             yield {}
@@ -99,7 +104,18 @@ class DynamicMultiviewIterableDataset(IterableDataset, Updateable):
         self.step = global_step
 
     def collate(self, batch):
-        index = torch.randint(0, self.cameras.c2w.shape[0], (1,)).item()
+        if self.cfg.incremental_train:
+            interval = self.cfg.incremental_interval
+            if self.step // interval <= self.cameras.c2w.shape[0] - 1:
+                train_index = min(self.step // interval, self.cameras.c2w.shape[0] - 1)
+                if np.random.randint(0, 100) % 2 == 0 or train_index == 0:
+                    index = train_index
+                else:
+                    index = torch.randint(0, train_index, (1,)).item()
+            else:
+                index = torch.randint(0, self.cameras.c2w.shape[0], (1,)).item()
+        else:
+            index = torch.randint(0, self.cameras.c2w.shape[0], (1,)).item()
         camera = self.cameras.get_index(index, is_batch=True)
         image = self.images.get_index(index, is_batch=True)
         if self.cfg.online_load_image:
