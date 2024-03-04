@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 import cv2
+import numpy as np
 import torch
 
 from gsstudio.data.utils.data_utils import DataOutput
@@ -51,6 +52,8 @@ class ImageOutput(DataOutput):
             self.image = torch.stack(self.image, dim=0)
             if len(self.mask) > 0:
                 self.mask = torch.stack(self.mask, dim=0)
+            else:
+                self.mask = None
 
         if isinstance(self.frame_mask_path, str):
             frame_mask_path = [self.frame_mask_path]
@@ -90,9 +93,19 @@ class ImageOutput(DataOutput):
         if frame_depth_path is not None and len(frame_depth_path) > 0:
             self.depth = []
             for depth_path in frame_depth_path:
-                depth = cv2.imread(depth_path)
-                depth = cv2.resize(depth, (self.width, self.height))
-                depth: Float[Tensor, "H W 3"] = torch.FloatTensor(depth) / 255
-                depth = depth[..., :1]
-                self.depth.append(depth)
+                if (
+                    depth_path.endswith("png")
+                    or depth_path.endswith("jpg")
+                    or depth_path.endswith("jpeg")
+                ):
+                    depth = cv2.imread(depth_path)
+                    depth = cv2.resize(depth, (self.width, self.height))
+                    depth: Float[Tensor, "H W 3"] = torch.FloatTensor(depth) / 255
+                    depth = depth[..., :1]
+                    self.depth.append(depth)
+                elif depth_path.endswith("npy"):
+                    depth = np.load(depth_path)
+                    depth = cv2.resize(depth, (self.width, self.height))
+                    depth = torch.FloatTensor(depth).unsqueeze(-1)
+                    self.depth.append(depth)
             self.depth = torch.stack(self.depth, dim=0)
