@@ -57,9 +57,9 @@ class CameraLoader:
                 frame["transform_matrix"], dtype=torch.float32
             )
             camera.c2w = extrinsic.unsqueeze(0)
-            camera.c2w, camera.intrinsic = convert_nerf2gl(
-                camera.c2w, camera.intrinsic, camera.height
-            )
+            # camera.c2w, camera.intrinsic = convert_nerf2gl(
+            #     camera.c2w, camera.intrinsic, camera.height
+            # )
 
             (
                 camera.fovx,
@@ -67,7 +67,8 @@ class CameraLoader:
                 camera.cx,
                 camera.cy,
                 camera.proj_mtx,
-            ) = intrinsic2proj_mtx(camera.intrinsic, camera.width, camera.height)
+            ) = intrinsic2proj_mtx(camera.intrinsic, camera.height, camera.width)
+
             if offline_load:
                 camera.rays_o, camera.rays_d = matrix2rays(
                     camera.c2w,
@@ -93,13 +94,17 @@ class CameraLoader:
 
             # load image
             image = ImageOutput()
-            frame_path = os.path.join(dataroot, frame["file_path"])
-            image.frame_image_path = [frame_path]
+            if frame.__contains__("file_path"):
+                frame_path = os.path.join(dataroot, frame["file_path"])
+                image.frame_image_path = [frame_path]
             image.width = camera.width
             image.height = camera.height
             if frame.__contains__("mask_path"):
                 mask_path = os.path.join(dataroot, frame["mask_path"])
                 image.frame_mask_path = [mask_path]
+            if frame.__contains__("depth_path"):
+                depth_path = os.path.join(dataroot, frame["depth_path"])
+                image.frame_depth_path = [depth_path]
             if frame.__contains__("bbox"):
                 image.bbox = torch.FloatTensor(frame["bbox"]).unsqueeze(0) / scale
             if offline_load:
