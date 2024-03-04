@@ -63,6 +63,7 @@ class GaussianBaseModel(BaseGeometry, GaussianIO):
 
         sphere: bool = False
         scaling_reg: bool = False
+        max_scale: Any = -1
         prune_big_points: bool = False
         color_clip: Any = 2.0
 
@@ -211,7 +212,7 @@ class GaussianBaseModel(BaseGeometry, GaussianIO):
     @property
     def get_scaling(self):
         if self.cfg.scaling_reg:
-            return self.scaling_activation(
+            scaling = self.scaling_activation(
                 (
                     self._scaling
                     + torch.mean(self._scaling, dim=-1).unsqueeze(-1).repeat(1, 3)
@@ -219,10 +220,14 @@ class GaussianBaseModel(BaseGeometry, GaussianIO):
                 / 2
             )
         if self.cfg.sphere:
-            return self.scaling_activation(
+            scaling = self.scaling_activation(
                 torch.mean(self._scaling, dim=-1).unsqueeze(-1).repeat(1, 3)
             )
-        return self.scaling_activation(self._scaling)
+        else:
+            scaling = self.scaling_activation(self._scaling)
+        if self.cfg.max_scale > 0:
+            scaling = scaling.clamp(0.0, self.cfg.max_scale)
+        return scaling
 
     @property
     def get_rotation(self):
