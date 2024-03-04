@@ -64,6 +64,7 @@ class GaussianDynamicT4dModel(GaussianBaseModel, DynamicBaseModel):
         num_frames: int = 10
         delta_pos_lr: Any = 0.001
         delta_rot_lr: Any = 0.001
+        flow_scale: Any = 0.1
 
         pos_encoding_config: dict = field(
             default_factory=lambda: {
@@ -84,7 +85,7 @@ class GaussianDynamicT4dModel(GaussianBaseModel, DynamicBaseModel):
                 "activation": "ReLU",
                 "output_activation": "none",
                 "n_neurons": 256,
-                "n_hidden_layers": 1,
+                "n_hidden_layers": 2,
             }
         )
         need_normalization: bool = False
@@ -115,8 +116,6 @@ class GaussianDynamicT4dModel(GaussianBaseModel, DynamicBaseModel):
             4, self.cfg.pos_encoding_config, self.cfg.mlp_network_config
         )
         self.time_index = 0
-        for key in dir(self):
-            print(key)
         super().configure()
 
     def init_normalization(self):
@@ -177,7 +176,7 @@ class GaussianDynamicT4dModel(GaussianBaseModel, DynamicBaseModel):
         points_zt[:, 1] = moment
 
         points_list = [points_xy, points_xz, points_yz, points_xt, points_yt, points_zt]
-        return dynamic_network(points_list)
+        return self.cfg.flow_scale * torch.tanh(dynamic_network(points_list))
 
     def create_from_pcd(self, pcd: BasicPointCloud, spatial_lr_scale: float):
         super().create_from_pcd(pcd, spatial_lr_scale)
