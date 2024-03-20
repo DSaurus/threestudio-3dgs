@@ -563,7 +563,8 @@ class GaussianBaseModel(BaseGeometry, GaussianIO):
         self._opacity = self._opacity.to(device)
         self._scaling = self._scaling.to(device)
         self._rotation = self._rotation.to(device)
-        self._normal = self._normal.to(device)
+        if self.cfg.pred_normal:
+            self._normal = self._normal.to(device)
 
     def replace_tensor_to_optimizer(self, tensor, name):
         optimizable_tensors = {}
